@@ -1,0 +1,298 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  VIEWER
+}
+
+model User {
+  id                String    @id @default(uuid())
+  firstName         String
+  lastName          String
+  email             String    @unique
+  passwordHash      String
+  role              UserRole  @default(VIEWER)
+  isActive          Boolean   @default(true)
+  alertsEnabled     Boolean   @default(true)
+  alertDaysBefore   Int       @default(30)
+  lastLoginAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  refreshTokens     RefreshToken[]
+  auditLogs         AuditLog[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@map("refresh_tokens")
+}
+
+model Supplier {
+  id            String     @id @default(uuid())
+  name          String
+  contactName   String?
+  email         String?
+  phone         String?
+  category      String?
+  rating        Int        @default(3)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  contracts     Contract[]
+
+  @@map("suppliers")
+}
+
+model Agency {
+  id            String    @id @default(uuid())
+  code          String    @unique
+  name          String
+  city          String
+  address       String?
+  region        String?
+  managerName   String?
+  managerEmail  String?
+  phone         String?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  contracts              ContractAgency[]
+  distributionLines      DistributionTemplateLine[]
+  budgetLineAgencies     BudgetLineAgency[]
+
+  @@map("agencies")
+}
+
+enum ContractStatus {
+  ACTIVE
+  RENEWING
+  EXPIRING
+  DENOUNCED
+  EXPIRED
+}
+
+enum BillingPeriod {
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+}
+
+enum ContractScope {
+  NATIONAL
+  REGIONAL
+  LOCAL
+  HEADQUARTERS
+}
+
+model Contract {
+  id                    String          @id @default(uuid())
+  reference             String          @unique
+  title                 String
+  category              String
+  status                ContractStatus  @default(ACTIVE)
+  supplierId            String
+  supplier              Supplier        @relation(fields: [supplierId], references: [id])
+  startDate             DateTime
+  endDate               DateTime
+  noticePeriodMonths    Int             @default(3)
+  denounceBeforeDate    DateTime?
+  amountHt              Float
+  billingPeriod         BillingPeriod   @default(ANNUAL)
+  vatRate               Float           @default(20)
+  scope                 ContractScope   @default(NATIONAL)
+  allAgencies           Boolean         @default(true)
+  tacitRenewal          Boolean         @default(true)
+  renewalDurationMonths Int?
+  notes                 String?
+  denouncedAt           DateTime?
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  agencies              ContractAgency[]
+  documents             Document[]
+  history               ContractHistory[]
+  budgetLines           BudgetLineContract[]
+
+  @@map("contracts")
+}
+
+model ContractAgency {
+  contractId String
+  agencyId   String
+  percentage Float    @default(0)
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  agency     Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+
+  @@id([contractId, agencyId])
+  @@map("contract_agencies")
+}
+
+model Document {
+  id           String   @id @default(uuid())
+  contractId   String
+  contract     Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  filename     String
+  originalName String
+  mimeType     String
+  size         Int
+  path         String
+  uploadedAt   DateTime @default(now())
+
+  @@map("documents")
+}
+
+model ContractHistory {
+  id         String   @id @default(uuid())
+  contractId String
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  action     String
+  details    String?
+  userId     String?
+  createdAt  DateTime @default(now())
+
+  @@map("contract_history")
+}
+
+enum BudgetType {
+  CONTRACT
+  GIE
+  INVESTMENT
+  SUBSCRIPTION
+  INTERNAL
+  OTHER
+}
+
+model BudgetLine {
+  id               String     @id @default(uuid())
+  label            String
+  type             BudgetType @default(CONTRACT)
+  category         String
+  year             Int
+  budgetHt         Float      @default(0)
+  actualHt         Float      @default(0)
+  vatRate          Float      @default(20)
+  isRecurring      Boolean    @default(false)
+  notes            String?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  linkedContracts  BudgetLineContract[]
+  agencies         BudgetLineAgency[]
+
+  @@map("budget_lines")
+}
+
+model BudgetLineContract {
+  budgetLineId String
+  contractId   String
+  budgetLine   BudgetLine @relation(fields: [budgetLineId], references: [id], onDelete: Cascade)
+  contract     Contract   @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@id([budgetLineId, contractId])
+  @@map("budget_line_contracts")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  entity    String
+  entityId  String?
+  details   Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@map("audit_logs")
+}
+
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("settings")
+}
+
+model AlertRule {
+  id          String   @id @default(uuid())
+  label       String
+  daysBefore  Int
+  enabled     Boolean  @default(true)
+  recipients  String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("alert_rules")
+}
+
+model AlertLog {
+  id          String   @id @default(uuid())
+  ruleId      String?
+  contractId  String?
+  recipients  String
+  subject     String
+  body        String
+  sentAt      DateTime @default(now())
+  status      String   @default("SENT")
+
+  @@map("alert_logs")
+}
+
+// ============================================================
+// VENTILATION PAR AGENCE — MODÈLES DE DISTRIBUTION
+// ============================================================
+
+model DistributionTemplate {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  lines       DistributionTemplateLine[]
+
+  @@map("distribution_templates")
+}
+
+model DistributionTemplateLine {
+  id         String               @id @default(uuid())
+  templateId String
+  template   DistributionTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  agencyId   String
+  agency     Agency               @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  percentage Float
+
+  @@unique([templateId, agencyId])
+  @@map("distribution_template_lines")
+}
+
+model BudgetLineAgency {
+  budgetLineId String
+  agencyId     String
+  budgetLine   BudgetLine @relation(fields: [budgetLineId], references: [id], onDelete: Cascade)
+  agency       Agency     @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  percentage   Float
+
+  @@id([budgetLineId, agencyId])
+  @@map("budget_line_agencies")
+}

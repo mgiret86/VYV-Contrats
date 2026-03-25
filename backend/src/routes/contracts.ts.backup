@@ -1,0 +1,243 @@
+import { Router } from 'express';
+import { prisma } from '../utils/prisma';
+import { authenticate, AuthRequest, requireRole } from '../middleware/auth';
+
+export const contractsRouter = Router();
+contractsRouter.use(authenticate);
+
+// GET /api/contracts
+contractsRouter.get('/', async (req: AuthRequest, res) => {
+  try {
+    const { status, category, scope, search } = req.query;
+    const where: any = {};
+
+    if (status) where.status = status;
+    if (category) where.category = category;
+    if (scope) where.scope = scope;
+    if (search) {
+      where.OR = [
+        { title: { contains: search as string, mode: 'insensitive' } },
+        { reference: { contains: search as string, mode: 'insensitive' } },
+      ];
+    }
+
+    const contracts = await prisma.contract.findMany({
+      where,
+      include: {
+        supplier: { select: { id: true, name: true } },
+        agencies: { include: { agency: { select: { id: true, code: true, name: true } } } },
+        documents: { select: { id: true, originalName: true, size: true, uploadedAt: true } },
+        _count: { select: { documents: true } },
+      },
+      orderBy: { endDate: 'asc' },
+    });
+
+    res.json(contracts);
+  } catch (err) {
+    console.error('GET contracts error:', err);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// GET /api/contracts/:id
+contractsRouter.get('/:id', async (req: AuthRequest, res) => {
+  try {
+    const contract = await prisma.contract.findUnique({
+      where: { id: req.params.id as string },
+      include: {
+        supplier: true,
+        agencies: {
+          include: { agency: { select: { id: true, code: true, name: true, city: true } } },
+          orderBy: { percentage: 'desc' },
+        },
+        documents: true,
+        history: { orderBy: { createdAt: 'desc' } },
+        budgetLines: { include: { budgetLine: true } },
+      },
+    });
+
+    if (!contract) {
+      res.status(404).json({ error: 'Contrat non trouvé' });
+      return;
+    }
+    res.json(contract);
+  } catch (err) {
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// POST /api/contracts
+contractsRouter.post('/', requireRole('ADMIN', 'MANAGER'), async (req: AuthRequest, res) => {
+  try {
+    const data = req.body;
+    const endDate = new Date(data.endDate);
+    const denounceDate = new Date(endDate);
+    denounceDate.setMonth(denounceDate.getMonth() - (data.noticePeriodMonths || 3));
+
+    const contract = await prisma.contract.create({
+      data: {
+        reference: data.reference,
+        title: data.title,
+        category: data.category,
+        supplierId: data.supplierId,
+        startDate: new Date(data.startDate),
+        endDate,
+        noticePeriodMonths: data.noticePeriodMonths || 3,
+        denounceBeforeDate: denounceDate,
+        amountHt: data.amountHt,
+        billingPeriod: data.billingPeriod || 'ANNUAL',
+        vatRate: data.vatRate || 20,
+        scope: data.scope || 'NATIONAL',
+        allAgencies: data.allAgencies ?? true,
+        tacitRenewal: data.tacitRenewal ?? true,
+        renewalDurationMonths: data.renewalDurationMonths,
+        notes: data.notes,
+      },
+    });
+
+    if (!data.allAgencies && data.agencies?.length > 0) {
+      await prisma.contractAgency.createMany({
+        data: data.agencies.map((a: any) => ({
+          contractId: contract.id,
+          agencyId: a.agencyId,
+          percentage: a.percentage || 0,
+        })),
+      });
+    } else if (!data.allAgencies && data.agencyIds?.length > 0) {
+      await prisma.contractAgency.createMany({
+        data: data.agencyIds.map((agencyId: string) => ({
+          contractId: contract.id,
+          agencyId,
+          percentage: 0,
+        })),
+      });
+    }
+
+    await prisma.contractHistory.create({
+      data: {
+        contractId: contract.id,
+        action: 'CREATION',
+        details: 'Contrat créé',
+        userId: req.userId,
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.userId,
+        action: 'CREATE',
+        entity: 'contract',
+        entityId: contract.id,
+        details: { reference: contract.reference },
+        ipAddress: req.ip || null,
+      },
+    });
+
+    res.status(201).json(contract);
+  } catch (err) {
+    console.error('POST contract error:', err);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// PUT /api/contracts/:id
+contractsRouter.put('/:id', requireRole('ADMIN', 'MANAGER'), async (req: AuthRequest, res) => {
+  try {
+    const id = req.params.id as string;
+    const data = req.body;
+    const endDate = new Date(data.endDate);
+    const denounceDate = new Date(endDate);
+    denounceDate.setMonth(denounceDate.getMonth() - (data.noticePeriodMonths || 3));
+
+    const contract = await prisma.contract.update({
+      where: { id },
+      data: {
+        title: data.title,
+        category: data.category,
+        supplierId: data.supplierId,
+        startDate: new Date(data.startDate),
+        endDate,
+        noticePeriodMonths: data.noticePeriodMonths,
+        denounceBeforeDate: denounceDate,
+        amountHt: data.amountHt,
+        billingPeriod: data.billingPeriod,
+        vatRate: data.vatRate,
+        scope: data.scope,
+        allAgencies: data.allAgencies,
+        tacitRenewal: data.tacitRenewal,
+        renewalDurationMonths: data.renewalDurationMonths,
+        notes: data.notes,
+      },
+    });
+
+    await prisma.contractAgency.deleteMany({ where: { contractId: id } });
+    if (!data.allAgencies && data.agencyIds?.length > 0) {
+      await prisma.contractAgency.createMany({
+        data: data.agencyIds.map((agencyId: string) => ({
+          contractId: id,
+          agencyId,
+        })),
+      });
+    }
+
+    await prisma.contractHistory.create({
+      data: {
+        contractId: id,
+        action: 'MODIFICATION',
+        details: 'Contrat modifié',
+        userId: req.userId,
+      },
+    });
+
+    res.json(contract);
+  } catch (err) {
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// PATCH /api/contracts/:id/denounce
+contractsRouter.patch('/:id/denounce', requireRole('ADMIN', 'MANAGER'), async (req: AuthRequest, res) => {
+  try {
+    const contract = await prisma.contract.update({
+      where: { id: req.params.id as string },
+      data: {
+        status: 'DENOUNCED',
+        denouncedAt: new Date(),
+      },
+    });
+
+    await prisma.contractHistory.create({
+      data: {
+        contractId: contract.id,
+        action: 'DENONCIATION',
+        details: 'Contrat dénoncé',
+        userId: req.userId,
+      },
+    });
+
+    res.json(contract);
+  } catch (err) {
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// DELETE /api/contracts/:id
+contractsRouter.delete('/:id', requireRole('ADMIN'), async (req: AuthRequest, res) => {
+  try {
+    await prisma.contract.delete({ where: { id: req.params.id as string } });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.userId,
+        action: 'DELETE',
+        entity: 'contract',
+        entityId: req.params.id as string,
+        ipAddress: req.ip || null,
+      },
+    });
+
+    res.json({ message: 'Contrat supprimé' });
+  } catch (err) {
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
