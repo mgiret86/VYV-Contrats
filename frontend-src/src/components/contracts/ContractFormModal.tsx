@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { X, Save } from 'lucide-react';
 import { Contract, ContractStatus, ContractScope, BillingPeriod } from '@/types/contract';
 import { CATEGORIES, generateId } from '@/lib/contractUtils';
+import { apiFetch } from '@/lib/api';
+import { Plus, Trash2 } from 'lucide-react';
 
 interface ContractFormModalProps {
   contract?: Contract | null;
@@ -33,6 +35,9 @@ const EMPTY_FORM: Partial<Contract> = {
   distributionMode: null,
   notes: '',
   agencies: 'ALL',
+  leaserId: null,
+  leaser: null,
+  articles: [],
 };
 
 function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
@@ -52,6 +57,16 @@ const selectCls = `${inputCls} cursor-pointer`;
 export function ContractFormModal({ contract, onSave, onClose }: ContractFormModalProps) {
   const isEdit = !!contract;
   const [form, setForm] = useState<Partial<Contract>>(contract ?? EMPTY_FORM);
+  const [leasers, setLeasers] = useState<{id:string;name:string}[]>([]);
+  const [allAgencies, setAllAgencies] = useState<{id:string;code:string;name:string;city:string}[]>([]);
+  const [articles, setArticles] = useState<{designation:string;quantity:number;agencyId:string}[]>(
+    (contract as any)?.articles?.map((a:any) => ({designation:a.designation,quantity:a.quantity,agencyId:a.agencyId||''})) || []
+  );
+
+  useEffect(() => {
+    apiFetch<any[]>('/leasers').then(setLeasers).catch(()=>{});
+    apiFetch<any[]>('/agencies').then(setAllAgencies).catch(()=>{});
+  }, []);
 
   useEffect(() => {
     setForm(contract ?? EMPTY_FORM);
@@ -71,6 +86,8 @@ export function ContractFormModal({ contract, onSave, onClose }: ContractFormMod
       reference: form.reference || `CTR-${new Date().getFullYear()}-${generateId().slice(0, 4).toUpperCase()}`,
       supplier: form.supplier ?? { id: generateId(), name: '' },
     } as Contract;
+    (saved as any).leaserId = form.leaserId || null;
+    (saved as any).articles = articles.filter(a => a.designation.trim());
     onSave(saved);
   };
 
@@ -181,6 +198,18 @@ export function ContractFormModal({ contract, onSave, onClose }: ContractFormMod
                   <option value="ALL_AGENCIES">Toutes agences</option>
                   <option value="HEADQUARTERS">Siège</option>
                   <option value="MULTI_AGENCY">Multi-agences</option>
+                </select>
+              </Field>
+              <Field label="Leaseur">
+                <select
+                  className={selectCls}
+                  value={(form as any).leaserId ?? ''}
+                  onChange={(e) => set('leaserId' as any, e.target.value || null)}
+                >
+                  <option value="">Aucun (pas de leasing)</option>
+                  {leasers.map((l) => (
+                    <option key={l.id} value={l.id}>{l.name}</option>
+                  ))}
                 </select>
               </Field>
             </div>
@@ -323,6 +352,63 @@ export function ContractFormModal({ contract, onSave, onClose }: ContractFormMod
                 </Field>
               </div>
             </div>
+          </div>
+
+          {/* Section: Articles / Matériels */}
+          <div className="space-y-4">
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2">
+              Articles / Matériels
+            </h3>
+            <p className="text-xs text-slate-400">Listez les équipements couverts par ce contrat.</p>
+            {articles.map((art, idx) => (
+              <div key={idx} className="grid grid-cols-12 gap-2 items-end">
+                <div className="col-span-5">
+                  {idx === 0 && <label className="text-[10px] font-semibold text-slate-500 uppercase">Désignation</label>}
+                  <input
+                    className={inputCls}
+                    value={art.designation}
+                    onChange={(e) => { const a = [...articles]; a[idx].designation = e.target.value; setArticles(a); }}
+                    placeholder="Ex: PC Dell Latitude 5540"
+                  />
+                </div>
+                <div className="col-span-2">
+                  {idx === 0 && <label className="text-[10px] font-semibold text-slate-500 uppercase">Qté</label>}
+                  <input
+                    type="number"
+                    className={inputCls}
+                    value={art.quantity}
+                    onChange={(e) => { const a = [...articles]; a[idx].quantity = Number(e.target.value); setArticles(a); }}
+                    min={1}
+                  />
+                </div>
+                <div className="col-span-4">
+                  {idx === 0 && <label className="text-[10px] font-semibold text-slate-500 uppercase">Agence</label>}
+                  <select
+                    className={selectCls}
+                    value={art.agencyId}
+                    onChange={(e) => { const a = [...articles]; a[idx].agencyId = e.target.value; setArticles(a); }}
+                  >
+                    <option value="">— Aucune —</option>
+                    {allAgencies.map((ag) => (
+                      <option key={ag.id} value={ag.id}>{ag.name} ({ag.city})</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="col-span-1 flex justify-center">
+                  <button type="button" onClick={() => setArticles(articles.filter((_,i) => i !== idx))} className="p-1.5 rounded-lg hover:bg-red-50 text-red-400 hover:text-red-600 transition-colors">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => setArticles([...articles, { designation: '', quantity: 1, agencyId: '' }])}
+              className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 font-medium transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Ajouter un article
+            </button>
           </div>
 
           {/* Section: Notes */}

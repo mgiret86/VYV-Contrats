@@ -73,6 +73,8 @@ const STATUSES = [
   { value: 'DENOUNCED', label: 'Dénoncé' },
   { value: 'EXPIRED', label: 'Expiré' },
   { value: 'NEGOTIATING', label: 'En négociation' },
+  { value: 'TO_TRANSFER', label: 'À transférer' },
+  { value: 'TRANSFERRING', label: 'En cours de transfert' },
 ];
 
 const PERIODS = [
@@ -108,17 +110,21 @@ export default function ContractFormPage() {
   // Agences et templates
   const [allAgencies, setAllAgencies] = useState<Agency[]>([]);
   const [templates, setTemplates] = useState<DistributionTemplate[]>([]);
+  const [leasers, setLeasers] = useState<{id:string;name:string}[]>([]);
+  const [articles, setArticles] = useState<{designation:string;quantity:number;agencyId:string}[]>([]);
   const [agencyLines, setAgencyLines] = useState<AgencyLine[]>([]);
 
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [agData, tplData] = await Promise.all([
+        const [agData, tplData, lsrData] = await Promise.all([
           apiFetch('/agencies'),
           apiFetch('/distribution-templates'),
+          apiFetch('/leasers'),
         ]);
         setAllAgencies(agData.filter((a: any) => a.isActive));
         setTemplates(tplData);
+        setLeasers(lsrData);
       } catch (err) {
         console.error('Erreur chargement agences/templates:', err);
       }
@@ -151,6 +157,7 @@ export default function ContractFormPage() {
     billingPeriod: 'ANNUAL',
     tariffRevision: '',
     notes: '',
+    leaserId: '',
   });
 
   useEffect(() => {
@@ -174,7 +181,17 @@ export default function ContractFormPage() {
         billingPeriod: existing.billingPeriod || 'ANNUAL',
         tariffRevision: existing.tariffRevision || '',
         notes: existing.notes || '',
+        leaserId: existing.leaserId || '',
       });
+
+      // Charger les articles liés au contrat
+      if (existing.articles && Array.isArray(existing.articles)) {
+        setArticles(existing.articles.map((a: any) => ({
+          designation: a.designation || '',
+          quantity: a.quantity || 1,
+          agencyId: a.agencyId || '',
+        })));
+      }
 
       // Charger les agences liées au contrat existant
       if (existing.agencies && Array.isArray(existing.agencies) && existing.agencies.length > 0) {
@@ -318,6 +335,8 @@ export default function ContractFormPage() {
             percentage: l.percentage,
           }))
         : [],
+      leaserId: form.leaserId || null,
+      articles: articles.filter(a => a.designation.trim()),
       ownerId: '1',
     };
 
@@ -467,6 +486,23 @@ export default function ContractFormPage() {
                     <SelectItem key={s.value} value={s.value}>
                       {s.label}
                     </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Leaseur</Label>
+              <Select
+                value={form.leaserId || 'none'}
+                onValueChange={(v) => set('leaserId', v === 'none' ? '' : v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Aucun (pas de leasing)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Aucun (pas de leasing)</SelectItem>
+                  {leasers.map((l) => (
+                    <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -653,6 +689,62 @@ export default function ContractFormPage() {
             </CardContent>
           </Card>
         )}
+        {/* Articles / Matériels */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Articles / Matériels</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-slate-500">Listez les équipements couverts par ce contrat.</p>
+            {articles.map((art, idx) => (
+              <div key={idx} className="grid grid-cols-12 gap-2 items-end">
+                <div className="col-span-5">
+                  {idx === 0 && <Label className="text-xs">Désignation</Label>}
+                  <Input
+                    value={art.designation}
+                    onChange={(e) => { const a = [...articles]; a[idx].designation = e.target.value; setArticles(a); }}
+                    placeholder="Ex: PC Dell Latitude 5540"
+                  />
+                </div>
+                <div className="col-span-2">
+                  {idx === 0 && <Label className="text-xs">Qté</Label>}
+                  <Input
+                    type="number"
+                    value={art.quantity}
+                    onChange={(e) => { const a = [...articles]; a[idx].quantity = Number(e.target.value); setArticles(a); }}
+                    min={1}
+                  />
+                </div>
+                <div className="col-span-4">
+                  {idx === 0 && <Label className="text-xs">Agence</Label>}
+                  <Select
+                    value={art.agencyId || 'none'}
+                    onValueChange={(v) => { const a = [...articles]; a[idx].agencyId = v === 'none' ? '' : v; setArticles(a); }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="— Aucune —" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">— Aucune —</SelectItem>
+                      {allAgencies.map((ag) => (
+                        <SelectItem key={ag.id} value={ag.id}>{ag.name} ({ag.city})</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="col-span-1 flex justify-center">
+                  <Button type="button" variant="ghost" size="sm" className="text-red-500" onClick={() => setArticles(articles.filter((_,i) => i !== idx))}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+            <Button type="button" variant="outline" size="sm" onClick={() => setArticles([...articles, { designation: '', quantity: 1, agencyId: '' }])}>
+              <Plus className="h-4 w-4 mr-2" />
+              Ajouter un article
+            </Button>
+          </CardContent>
+        </Card>
 
         {/* Dates */}
         <Card>

@@ -57,7 +57,9 @@ contractsRouter.get('/', async (req: AuthRequest, res) => {
       where,
       include: {
         supplier: { select: { id: true, name: true } },
+        leaser: { select: { id: true, name: true } },
         agencies: { include: { agency: { select: { id: true, code: true, name: true } } } },
+        articles: { include: { agency: { select: { id: true, code: true, name: true, city: true } } } },
         documents: { select: { id: true, originalName: true, size: true, uploadedAt: true } },
         _count: { select: { documents: true } },
       },
@@ -78,9 +80,14 @@ contractsRouter.get('/:id', async (req: AuthRequest, res) => {
       where: { id: req.params.id as string },
       include: {
         supplier: true,
+        leaser: true,
         agencies: {
           include: { agency: { select: { id: true, code: true, name: true, city: true } } },
           orderBy: { percentage: 'desc' },
+        },
+        articles: {
+          include: { agency: { select: { id: true, code: true, name: true, city: true } } },
+          orderBy: { createdAt: 'asc' },
         },
         documents: true,
         history: { orderBy: { createdAt: 'desc' } },
@@ -117,6 +124,7 @@ contractsRouter.post('/', requireRole('ADMIN', 'MANAGER'), async (req: AuthReque
         title: data.title,
         category: data.category,
         supplierId: data.supplierId,
+        leaserId: data.leaserId || null,
         startDate: new Date(data.startDate),
         endDate,
         noticePeriodMonths,
@@ -142,6 +150,22 @@ contractsRouter.post('/', requireRole('ADMIN', 'MANAGER'), async (req: AuthReque
         .filter((r: any) => r !== null);
       if (postRows.length > 0) {
         await prisma.contractAgency.createMany({ data: postRows });
+      }
+    }
+
+    // Create articles
+    const articleItems = data.articles || [];
+    if (articleItems.length > 0) {
+      const articleRows = articleItems
+        .filter((a: any) => a.designation && a.designation.trim())
+        .map((a: any) => ({
+          contractId: contract.id,
+          designation: a.designation.trim(),
+          quantity: a.quantity || 1,
+          agencyId: a.agencyId || null,
+        }));
+      if (articleRows.length > 0) {
+        await prisma.contractArticle.createMany({ data: articleRows });
       }
     }
 
@@ -194,6 +218,7 @@ contractsRouter.put('/:id', requireRole('ADMIN', 'MANAGER'), async (req: AuthReq
         category: data.category,
         status: data.status || undefined,
         supplierId: data.supplierId,
+        leaserId: data.leaserId || null,
         startDate: new Date(data.startDate),
         endDate,
         noticePeriodMonths,
@@ -223,6 +248,23 @@ contractsRouter.put('/:id', requireRole('ADMIN', 'MANAGER'), async (req: AuthReq
       }
     }
 
+    // Recreate articles
+    await prisma.contractArticle.deleteMany({ where: { contractId: id } });
+    const putArticles = data.articles || [];
+    if (putArticles.length > 0) {
+      const articleRows = putArticles
+        .filter((a: any) => a.designation && a.designation.trim())
+        .map((a: any) => ({
+          contractId: id,
+          designation: a.designation.trim(),
+          quantity: a.quantity || 1,
+          agencyId: a.agencyId || null,
+        }));
+      if (articleRows.length > 0) {
+        await prisma.contractArticle.createMany({ data: articleRows });
+      }
+    }
+
     await prisma.contractHistory.create({
       data: {
         contractId: id,
@@ -236,7 +278,9 @@ contractsRouter.put('/:id', requireRole('ADMIN', 'MANAGER'), async (req: AuthReq
       where: { id },
       include: {
         supplier: { select: { id: true, name: true } },
+        leaser: { select: { id: true, name: true } },
         agencies: { include: { agency: { select: { id: true, code: true, name: true } } } },
+        articles: { include: { agency: { select: { id: true, code: true, name: true, city: true } } } },
       },
     });
 

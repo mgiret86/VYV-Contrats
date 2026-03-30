@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBudget, BUDGET_TYPE_CONFIG } from '@/contexts/BudgetContext';
+import { useContracts } from '@/contexts/ContractsContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -22,6 +23,11 @@ import {
   BarChart3,
   AlertTriangle,
   CheckCircle2,
+  FileText,
+  ShieldCheck,
+  ShieldAlert,
+  Link2,
+  Unlink,
 } from 'lucide-react';
 
 // ============================================================
@@ -56,11 +62,32 @@ function consumptionBarColor(pct: number): string {
   return 'bg-green-500';
 }
 
+function getAnnualized(amount: number, period: string): number {
+  if (period === 'MONTHLY') return amount * 12;
+  if (period === 'QUARTERLY') return amount * 4;
+  return amount;
+}
+
 const DONUT_COLORS = [
   '#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6',
   '#ec4899', '#06b6d4', '#f97316', '#6366f1', '#14b8a6',
   '#a855f7', '#64748b',
 ];
+
+// ============================================================
+// TYPES
+// ============================================================
+
+interface ContractYearCost {
+  id: string;
+  reference: string;
+  title: string;
+  category: string;
+  supplierName: string;
+  annualizedCost: number;
+  yearProrataCost: number;
+  isLinkedToBudget: boolean;
+}
 
 // ============================================================
 // COMPOSANT
@@ -69,6 +96,7 @@ const DONUT_COLORS = [
 export default function BudgetSynthesePage() {
   const navigate = useNavigate();
   const { budgetLines, availableYears } = useBudget();
+  const { contracts, suppliers } = useContracts();
 
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState(
@@ -88,7 +116,75 @@ export default function BudgetSynthesePage() {
     [budgetLines, previousYear]
   );
 
-  // ===== KPIs globaux =====
+  // ===== Engagements contractuels annualisés =====
+  const contractCosts: ContractYearCost[] = useMemo(() => {
+    const yearStart = new Date(`${selectedYear}-01-01`);
+    const yearEnd = new Date(`${selectedYear}-12-31`);
+
+    // IDs de contrats liés à au moins une ligne budgétaire de l'année
+    const allLinkedIds = new Set(
+      yearLines.flatMap((l) => l.linkedContractIds)
+    );
+
+    return contracts
+      .filter((c) => {
+        const start = new Date(c.startDate);
+        const end = new Date(c.endDate);
+        // Le contrat chevauche l'année sélectionnée
+        return start <= yearEnd && end >= yearStart;
+      })
+      .map((c) => {
+        const annualized = getAnnualized(c.amountHt, c.billingPeriod);
+
+        // Prorata temporel sur l'année
+        const contractStart = new Date(c.startDate);
+        const contractEnd = new Date(c.endDate);
+        const overlapStart = contractStart > yearStart ? contractStart : yearStart;
+        const overlapEnd = contractEnd < yearEnd ? contractEnd : yearEnd;
+        const overlapDays = Math.max(
+          0,
+          (overlapEnd.getTime() - overlapStart.getTime()) / 86400000 + 1
+        );
+        const yearDays =
+          (yearEnd.getTime() - yearStart.getTime()) / 86400000 + 1;
+        const yearProrataCost = annualized * (overlapDays / yearDays);
+
+        const supplier = suppliers.find((s) => s.id === c.supplierId);
+
+        return {
+          id: c.id,
+          reference: c.reference,
+          title: c.title,
+          category: c.category,
+          supplierName: supplier?.name || '—',
+          annualizedCost: annualized,
+          yearProrataCost: Math.round(yearProrataCost),
+          isLinkedToBudget: allLinkedIds.has(c.id),
+        };
+      })
+      .sort((a, b) => b.yearProrataCost - a.yearProrataCost);
+  }, [contracts, suppliers, yearLines, selectedYear]);
+
+  // ===== Métriques contrats =====
+  const contractMetrics = useMemo(() => {
+    const totalEngagement = contractCosts.reduce((s, c) => s + c.yearProrataCost, 0);
+    const linkedCosts = contractCosts.filter((c) => c.isLinkedToBudget);
+    const unlinkedCosts = contractCosts.filter((c) => !c.isLinkedToBudget);
+    const linkedTotal = linkedCosts.reduce((s, c) => s + c.yearProrataCost, 0);
+    const unlinkedTotal = unlinkedCosts.reduce((s, c) => s + c.yearProrataCost, 0);
+
+    return {
+      totalEngagement,
+      linkedCount: linkedCosts.length,
+      linkedTotal,
+      unlinkedCount: unlinkedCosts.length,
+      unlinkedTotal,
+      unlinkedContracts: unlinkedCosts,
+      totalCount: contractCosts.length,
+    };
+  }, [contractCosts]);
+
+  // ===== KPIs globaux (budget lines) =====
   const kpis = useMemo(() => {
     const budget = yearLines.reduce((s, l) => s + l.budgetHt, 0);
     const actual = yearLines.reduce((s, l) => s + l.actualHt, 0);
@@ -108,6 +204,14 @@ export default function BudgetSynthesePage() {
       (l) => l.budgetHt > 0 && l.actualHt / l.budgetHt < 0.25 && l.actualHt > 0
     );
 
+    // Couverture : budget prévisionnel vs engagements contractuels
+    const coverageRatio =
+      contractMetrics.totalEngagement > 0
+        ? (budget / contractMetrics.totalEngagement) * 100
+        : budget > 0
+          ? 100
+          : 0;
+
     return {
       budget,
       actual,
@@ -124,24 +228,41 @@ export default function BudgetSynthesePage() {
         0
       ),
       underConsumedCount: underConsumed.length,
+      coverageRatio,
     };
-  }, [yearLines, prevYearLines]);
+  }, [yearLines, prevYearLines, contractMetrics]);
 
-  // ===== Par catégorie =====
+  // ===== Par catégorie (budget lines + contrats combinés) =====
   const byCategory = useMemo(() => {
-    const map: Record<string, { budget: number; actual: number; count: number }> = {};
+    const map: Record<
+      string,
+      { budget: number; actual: number; count: number; contractEngagement: number; contractCount: number }
+    > = {};
+
+    // Budget lines
     yearLines.forEach((l) => {
-      if (!map[l.category]) map[l.category] = { budget: 0, actual: 0, count: 0 };
+      if (!map[l.category])
+        map[l.category] = { budget: 0, actual: 0, count: 0, contractEngagement: 0, contractCount: 0 };
       map[l.category].budget += l.budgetHt;
       map[l.category].actual += l.actualHt;
       map[l.category].count += 1;
     });
+
+    // Contrats (engagements)
+    contractCosts.forEach((c) => {
+      if (!map[c.category])
+        map[c.category] = { budget: 0, actual: 0, count: 0, contractEngagement: 0, contractCount: 0 };
+      map[c.category].contractEngagement += c.yearProrataCost;
+      map[c.category].contractCount += 1;
+    });
+
     return Object.entries(map)
       .map(([category, data]) => ({ category, ...data }))
-      .sort((a, b) => b.budget - a.budget);
-  }, [yearLines]);
+      .sort((a, b) => Math.max(b.budget, b.contractEngagement) - Math.max(a.budget, a.contractEngagement));
+  }, [yearLines, contractCosts]);
 
   const totalBudgetCat = byCategory.reduce((s, c) => s + c.budget, 0);
+  const totalEngagementCat = byCategory.reduce((s, c) => s + c.contractEngagement, 0);
 
   // ===== Par type =====
   const byType = useMemo(() => {
@@ -205,6 +326,11 @@ export default function BudgetSynthesePage() {
           </h1>
           <p className="text-slate-500 text-sm mt-1">
             Vue consolidée du budget DSI — {selectedYear}
+            {contractMetrics.totalCount > 0 && (
+              <span className="ml-2 text-blue-500">
+                · {contractMetrics.totalCount} contrat{contractMetrics.totalCount > 1 ? 's' : ''} actif{contractMetrics.totalCount > 1 ? 's' : ''}
+              </span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -233,8 +359,9 @@ export default function BudgetSynthesePage() {
         </div>
       </div>
 
-      {/* ===== KPIs PRINCIPAUX ===== */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* ===== KPIs PRINCIPAUX (6 cartes) ===== */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {/* Budget prévisionnel */}
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-start justify-between">
@@ -268,6 +395,9 @@ export default function BudgetSynthesePage() {
                     </span>
                   </div>
                 )}
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {kpis.lineCount} ligne{kpis.lineCount > 1 ? 's' : ''} budgétaire{kpis.lineCount > 1 ? 's' : ''}
+                </p>
               </div>
               <div className="p-3 bg-blue-50 rounded-xl">
                 <Euro className="h-6 w-6 text-blue-600" />
@@ -276,6 +406,36 @@ export default function BudgetSynthesePage() {
           </CardContent>
         </Card>
 
+        {/* NOUVEAU — Engagements contractuels */}
+        <Card className={contractMetrics.totalEngagement > kpis.budget && kpis.budget > 0 ? 'border-amber-200' : ''}>
+          <CardContent className="pt-6">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-sm text-slate-500 font-medium">
+                  Engagements contractuels
+                </p>
+                <p className="text-3xl font-bold text-indigo-600 mt-1">
+                  {formatCurrency(contractMetrics.totalEngagement)}
+                </p>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-xs text-slate-400">
+                    {contractMetrics.totalCount} contrat{contractMetrics.totalCount > 1 ? 's' : ''}
+                  </span>
+                  {contractMetrics.totalEngagement > kpis.budget && kpis.budget > 0 && (
+                    <span className="text-xs text-amber-600 font-medium">
+                      · dépasse le budget de {formatCurrency(contractMetrics.totalEngagement - kpis.budget)}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="p-3 bg-indigo-50 rounded-xl">
+                <FileText className="h-6 w-6 text-indigo-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Réalisé */}
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-start justify-between">
@@ -296,7 +456,7 @@ export default function BudgetSynthesePage() {
                   <span
                     className={`text-xs font-medium ${consumptionColor(kpis.pct)}`}
                   >
-                    {kpis.pct.toFixed(0)}%
+                    {kpis.pct.toFixed(0)}% du budget
                   </span>
                 </div>
               </div>
@@ -306,74 +466,199 @@ export default function BudgetSynthesePage() {
             </div>
           </CardContent>
         </Card>
-
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm text-slate-500 font-medium">
-                  {kpis.remaining >= 0 ? 'Reste à consommer' : 'Dépassement'}
-                </p>
-                <p
-                  className={`text-3xl font-bold mt-1 ${
-                    kpis.remaining >= 0 ? 'text-emerald-600' : 'text-red-600'
-                  }`}
-                >
-                  {formatCurrency(Math.abs(kpis.remaining))}
-                </p>
-                <p className="text-xs text-slate-400 mt-1">
-                  {kpis.lineCount} lignes budgétaires
-                </p>
-              </div>
-              <div
-                className={`p-3 rounded-xl ${
-                  kpis.remaining >= 0 ? 'bg-emerald-50' : 'bg-red-50'
-                }`}
-              >
-                {kpis.remaining >= 0 ? (
-                  <CheckCircle2 className="h-6 w-6 text-emerald-600" />
-                ) : (
-                  <AlertTriangle className="h-6 w-6 text-red-600" />
-                )}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm text-slate-500 font-medium">
-                  Lignes en dépassement
-                </p>
-                <p className="text-3xl font-bold text-amber-600 mt-1">
-                  {kpis.overBudgetCount}
-                </p>
-                {kpis.overBudgetCount > 0 && (
-                  <p className="text-xs text-red-500 mt-1">
-                    {formatCurrency(kpis.overBudgetAmount)} de dépassement
-                  </p>
-                )}
-              </div>
-              <div className="p-3 bg-amber-50 rounded-xl">
-                <AlertTriangle className="h-6 w-6 text-amber-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
       </div>
+
+      {/* ===== COUVERTURE CONTRACTUELLE (NOUVEAU) ===== */}
+      {contractMetrics.totalCount > 0 && (
+        <Card className={
+          contractMetrics.unlinkedCount > 0
+            ? 'border-amber-200 bg-gradient-to-r from-white to-amber-50/30'
+            : 'border-green-200 bg-gradient-to-r from-white to-green-50/30'
+        }>
+          <CardContent className="pt-6">
+            <div className="flex flex-col lg:flex-row lg:items-center gap-6">
+              {/* Barre de couverture */}
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-3">
+                  {contractMetrics.unlinkedCount === 0 ? (
+                    <ShieldCheck className="h-5 w-5 text-green-600" />
+                  ) : (
+                    <ShieldAlert className="h-5 w-5 text-amber-600" />
+                  )}
+                  <h3 className="font-semibold text-slate-800">
+                    Couverture budgétaire des contrats
+                  </h3>
+                </div>
+
+                {/* Barre visuelle Budget vs Engagements */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs text-slate-500">
+                    <span>Budget prévisionnel</span>
+                    <span className="font-medium">{formatCurrency(kpis.budget)}</span>
+                  </div>
+                  <div className="relative w-full bg-gray-100 rounded-full h-4">
+                    {/* Barre engagements (fond) */}
+                    <div
+                      className="absolute top-0 left-0 h-4 rounded-full bg-indigo-100 transition-all"
+                      style={{
+                        width: `${Math.min(100, contractMetrics.totalEngagement > 0 && kpis.budget > 0
+                          ? (contractMetrics.totalEngagement / Math.max(kpis.budget, contractMetrics.totalEngagement)) * 100
+                          : 0
+                        )}%`,
+                      }}
+                    />
+                    {/* Barre budget (dessus) */}
+                    <div
+                      className={`absolute top-0 left-0 h-4 rounded-full transition-all ${
+                        kpis.coverageRatio >= 100
+                          ? 'bg-green-500'
+                          : kpis.coverageRatio >= 80
+                            ? 'bg-blue-500'
+                            : 'bg-amber-500'
+                      }`}
+                      style={{
+                        width: `${Math.min(100, contractMetrics.totalEngagement > 0 && kpis.budget > 0
+                          ? (kpis.budget / Math.max(kpis.budget, contractMetrics.totalEngagement)) * 100
+                          : kpis.budget > 0 ? 100 : 0
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-slate-500">
+                    <span>Engagements contractuels</span>
+                    <span className="font-medium text-indigo-600">
+                      {formatCurrency(contractMetrics.totalEngagement)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Ratio */}
+                <div className="mt-3 flex items-center gap-2">
+                  <span className="text-sm text-slate-600">Taux de couverture :</span>
+                  <span
+                    className={`text-lg font-bold ${
+                      kpis.coverageRatio >= 100
+                        ? 'text-green-600'
+                        : kpis.coverageRatio >= 80
+                          ? 'text-blue-600'
+                          : 'text-amber-600'
+                    }`}
+                  >
+                    {kpis.coverageRatio.toFixed(0)}%
+                  </span>
+                </div>
+              </div>
+
+              {/* Métriques de liaison */}
+              <div className="grid grid-cols-2 gap-3 lg:w-72 shrink-0">
+                <div className="bg-white rounded-xl p-3 text-center border">
+                  <div className="flex items-center justify-center gap-1 mb-1">
+                    <Link2 className="h-3.5 w-3.5 text-green-600" />
+                    <span className="text-xs text-slate-500">Budgétés</span>
+                  </div>
+                  <p className="text-2xl font-bold text-green-600">
+                    {contractMetrics.linkedCount}
+                  </p>
+                  <p className="text-[10px] text-slate-400">
+                    {formatCurrency(contractMetrics.linkedTotal)}
+                  </p>
+                </div>
+                <div className="bg-white rounded-xl p-3 text-center border">
+                  <div className="flex items-center justify-center gap-1 mb-1">
+                    <Unlink className="h-3.5 w-3.5 text-amber-600" />
+                    <span className="text-xs text-slate-500">Non budgétés</span>
+                  </div>
+                  <p className="text-2xl font-bold text-amber-600">
+                    {contractMetrics.unlinkedCount}
+                  </p>
+                  <p className="text-[10px] text-slate-400">
+                    {formatCurrency(contractMetrics.unlinkedTotal)}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ===== CONTRATS NON BUDGÉTÉS (NOUVEAU) ===== */}
+      {contractMetrics.unlinkedContracts.length > 0 && (
+        <Card className="border-amber-100">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-amber-500" />
+                <CardTitle className="text-lg text-amber-700">
+                  Contrats sans ligne budgétaire ({contractMetrics.unlinkedCount})
+                </CardTitle>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigate('/budget/lignes')}
+                className="text-xs"
+              >
+                Créer des lignes
+                <ArrowRight className="h-3 w-3 ml-1" />
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-1.5">
+              {contractMetrics.unlinkedContracts.slice(0, 8).map((c) => (
+                <div
+                  key={c.id}
+                  className="flex items-center gap-3 p-2.5 rounded-xl bg-amber-50/50 hover:bg-amber-50 cursor-pointer transition-colors"
+                  onClick={() => navigate(`/contrats/${c.id}`)}
+                >
+                  <div className="w-1 self-stretch rounded-full bg-amber-400 shrink-0" />
+                  <FileText className="h-4 w-4 text-amber-500 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-800 truncate">
+                      {c.title}
+                    </p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        {c.reference}
+                      </span>
+                      <span className="text-[10px] text-slate-300">·</span>
+                      <span className="text-[10px] text-slate-400">
+                        {c.supplierName}
+                      </span>
+                      <span className="text-[10px] text-slate-300">·</span>
+                      <Badge variant="outline" className="text-[10px] px-1 py-0">
+                        {c.category}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-sm font-bold text-amber-600">
+                      {formatCurrency(c.yearProrataCost)}
+                    </p>
+                    <p className="text-[10px] text-slate-400">/an proratisé</p>
+                  </div>
+                </div>
+              ))}
+              {contractMetrics.unlinkedContracts.length > 8 && (
+                <p className="text-xs text-slate-400 text-center pt-2">
+                  … et {contractMetrics.unlinkedContracts.length - 8} autre{contractMetrics.unlinkedContracts.length - 8 > 1 ? 's' : ''}
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ===== GRAPHIQUES ===== */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        {/* Donut catégories */}
+        {/* Donut catégories (enrichi avec contrats) */}
         <div className="lg:col-span-2">
           <Card className="h-full">
             <CardHeader>
               <div className="flex items-center gap-2">
                 <PieChart className="h-5 w-5 text-slate-400" />
                 <CardTitle className="text-lg">
-                  Budget par catégorie
+                  Par catégorie
                 </CardTitle>
               </div>
             </CardHeader>
@@ -381,11 +666,17 @@ export default function BudgetSynthesePage() {
               <div className="flex flex-col items-center">
                 <svg viewBox="0 0 200 200" className="w-52 h-52">
                   {(() => {
+                    // Utiliser le max entre budget et engagement par catégorie
+                    const totalForDonut = byCategory.reduce(
+                      (s, c) => s + Math.max(c.budget, c.contractEngagement),
+                      0
+                    );
                     let cumulative = 0;
                     return byCategory.map((cat, i) => {
+                      const value = Math.max(cat.budget, cat.contractEngagement);
                       const pct =
-                        totalBudgetCat > 0
-                          ? cat.budget / totalBudgetCat
+                        totalForDonut > 0
+                          ? value / totalForDonut
                           : 0;
                       if (pct === 0) return null;
                       const startAngle = cumulative * 360;
@@ -423,8 +714,7 @@ export default function BudgetSynthesePage() {
                           strokeWidth="1.5"
                         >
                           <title>
-                            {cat.category}: {formatCurrency(cat.budget)} (
-                            {(pct * 100).toFixed(1)}%)
+                            {cat.category}: Budget {formatCurrency(cat.budget)} · Contrats {formatCurrency(cat.contractEngagement)} ({(pct * 100).toFixed(1)}%)
                           </title>
                         </path>
                       );
@@ -436,7 +726,7 @@ export default function BudgetSynthesePage() {
                     textAnchor="middle"
                     className="text-xs fill-gray-400"
                   >
-                    Budget
+                    Budget + Contrats
                   </text>
                   <text
                     x="100"
@@ -444,15 +734,20 @@ export default function BudgetSynthesePage() {
                     textAnchor="middle"
                     className="text-sm font-bold fill-gray-800"
                   >
-                    {formatCurrency(totalBudgetCat)}
+                    {formatCurrency(Math.max(totalBudgetCat, totalEngagementCat))}
                   </text>
                 </svg>
 
                 <div className="w-full mt-4 space-y-1.5">
                   {byCategory.map((cat, i) => {
+                    const maxVal = Math.max(cat.budget, cat.contractEngagement);
+                    const totalForPct = byCategory.reduce(
+                      (s, c) => s + Math.max(c.budget, c.contractEngagement),
+                      0
+                    );
                     const pct =
-                      totalBudgetCat > 0
-                        ? ((cat.budget / totalBudgetCat) * 100).toFixed(1)
+                      totalForPct > 0
+                        ? ((maxVal / totalForPct) * 100).toFixed(1)
                         : '0';
                     return (
                       <div
@@ -467,17 +762,24 @@ export default function BudgetSynthesePage() {
                                 DONUT_COLORS[i % DONUT_COLORS.length],
                             }}
                           />
-                          <span className="text-slate-600 truncate max-w-[140px]">
+                          <span className="text-slate-600 truncate max-w-[100px]">
                             {cat.category}
                           </span>
                           <span className="text-slate-300">
-                            ({cat.count})
+                            ({cat.count + cat.contractCount})
                           </span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="text-slate-500 font-medium">
-                            {formatCurrency(cat.budget)}
-                          </span>
+                          {cat.budget > 0 && (
+                            <span className="text-blue-500 font-medium" title="Budget">
+                              B:{formatCurrency(cat.budget)}
+                            </span>
+                          )}
+                          {cat.contractEngagement > 0 && (
+                            <span className="text-indigo-500 font-medium" title="Contrats">
+                              C:{formatCurrency(cat.contractEngagement)}
+                            </span>
+                          )}
                           <span className="text-slate-300 w-10 text-right">
                             {pct}%
                           </span>
@@ -493,6 +795,65 @@ export default function BudgetSynthesePage() {
 
         {/* Par type + Dépassements */}
         <div className="lg:col-span-3 space-y-6">
+          {/* KPIs secondaires */}
+          <div className="grid grid-cols-3 gap-3">
+            <Card>
+              <CardContent className="pt-4 pb-3">
+                <p className="text-sm text-slate-500 font-medium">
+                  {kpis.remaining >= 0 ? 'Reste à consommer' : 'Dépassement'}
+                </p>
+                <p
+                  className={`text-2xl font-bold mt-1 ${
+                    kpis.remaining >= 0 ? 'text-emerald-600' : 'text-red-600'
+                  }`}
+                >
+                  {formatCurrency(Math.abs(kpis.remaining))}
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4 pb-3">
+                <p className="text-sm text-slate-500 font-medium">
+                  Lignes en dépassement
+                </p>
+                <p className="text-2xl font-bold text-amber-600 mt-1">
+                  {kpis.overBudgetCount}
+                </p>
+                {kpis.overBudgetCount > 0 && (
+                  <p className="text-xs text-red-500 mt-0.5">
+                    {formatCurrency(kpis.overBudgetAmount)}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4 pb-3">
+                <p className="text-sm text-slate-500 font-medium">
+                  Écart budget / contrats
+                </p>
+                {contractMetrics.totalEngagement > 0 ? (
+                  <>
+                    <p
+                      className={`text-2xl font-bold mt-1 ${
+                        kpis.budget >= contractMetrics.totalEngagement
+                          ? 'text-green-600'
+                          : 'text-red-600'
+                      }`}
+                    >
+                      {kpis.budget >= contractMetrics.totalEngagement ? '+' : ''}
+                      {formatCurrency(kpis.budget - contractMetrics.totalEngagement)}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      budget {kpis.budget >= contractMetrics.totalEngagement ? '>' : '<'} engagements
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-2xl font-bold text-slate-300 mt-1">—</p>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
           {/* Par type */}
           <Card>
             <CardHeader>
@@ -541,12 +902,10 @@ export default function BudgetSynthesePage() {
                         </div>
                       </div>
                       <div className="relative w-full bg-gray-100 rounded-full h-3">
-                        {/* Barre budget (gris clair) */}
                         <div
                           className="absolute top-0 left-0 h-3 rounded-full bg-gray-200"
                           style={{ width: `${pctBudget}%` }}
                         />
-                        {/* Barre réalisé */}
                         <div
                           className={`absolute top-0 left-0 h-3 rounded-full transition-all ${consumptionBarColor(pctConsumed)}`}
                           style={{
@@ -783,7 +1142,7 @@ export default function BudgetSynthesePage() {
                 Ventilation par agence
               </p>
               <p className="text-sm text-slate-500 mt-1">
-                Répartition du budget sur les 25 agences
+                Répartition du budget sur les agences
               </p>
             </div>
             <ChevronRight className="h-5 w-5 text-slate-300" />

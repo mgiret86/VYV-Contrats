@@ -10,6 +10,7 @@ import {
   Settings,
   ChevronDown,
   LayoutTemplate,
+  Landmark
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -35,6 +36,7 @@ const navItems: NavItem[] = [
     ],
   },
   { to: '/fournisseurs', icon: Building2, label: 'Fournisseurs' },
+  { to: '/leaseurs', icon: Landmark, label: 'Leaseurs' },
   { to: '/agences', icon: MapPin, label: 'Agences' },
   { to: '/modeles-ventilation', icon: LayoutTemplate, label: 'Modèles ventilation' },
   { to: '/utilisateurs', icon: Users, label: 'Utilisateurs' },

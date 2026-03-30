@@ -16,6 +16,7 @@ import BudgetSynthesePage from '@/pages/placeholders/BudgetSynthesePage';
 import BudgetAgencesPage from '@/pages/placeholders/BudgetAgencesPage';
 import BudgetLignesPage from '@/pages/placeholders/BudgetLignesPage';
 import FournisseursPage from '@/pages/placeholders/FournisseursPage';
+import LeaseursPage from '@/pages/placeholders/LeaseursPage';
 import ParametresPage from '@/pages/placeholders/ParametresPage';
 import UsersPage from '@/pages/placeholders/UsersPage';
 import DistributionTemplatesPage from '@/pages/placeholders/DistributionTemplatesPage';
@@ -49,6 +50,7 @@ export default function App() {
                   <Route path="budget/agences" element={<BudgetAgencesPage />} />
                   <Route path="budget/lignes" element={<BudgetLignesPage />} />
                   <Route path="fournisseurs" element={<FournisseursPage />} />
+                  <Route path="leaseurs" element={<LeaseursPage />} />
                   <Route path="agences" element={<AgenciesPage />} />
                   <Route path="modeles-ventilation" element={<DistributionTemplatesPage />} />
                   <Route path="parametres" element={<ParametresPage />} />

@@ -59,6 +59,9 @@ const statusConfig: Record<string, { className: string; label: string }> = {
   EXPIRED: { className: 'bg-red-100 text-red-700', label: 'Expiré' },
   NEGOTIATING: { className: 'bg-yellow-100 text-yellow-700', label: 'En négociation' },
   RENEWING: { className: 'bg-blue-100 text-blue-700', label: 'En renouvellement' },
+  TO_TRANSFER: { className: 'bg-purple-100 text-purple-700', label: 'À transférer' },
+  TRANSFERRING: { className: 'bg-amber-100 text-amber-700', label: 'En cours de transfert' },
+  EXPIRING: { className: 'bg-orange-100 text-orange-700', label: 'En expiration' },
 };
 
 const scopeLabels: Record<string, string> = {
@@ -380,6 +383,9 @@ export default function ContractDetailPage() {
                       '—'
                     )}
                   </InfoRow>
+                  <InfoRow label="Leaseur">
+                    {(contract as any).leaser?.name || '—'}
+                  </InfoRow>
                   <InfoRow label="Téléphone">
                     {supplier?.contactPhone ? (
                       <a
@@ -395,6 +401,42 @@ export default function ContractDetailPage() {
                 </CardContent>
               </Card>
             </div>
+
+              {/* Articles / Matériels */}
+              {Array.isArray((contract as any).articles) && (contract as any).articles.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Articles / Matériels</CardTitle>
+                    <CardDescription>{(contract as any).articles.length} article(s) lié(s) à ce contrat</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Désignation</TableHead>
+                          <TableHead className="text-center w-20">Qté</TableHead>
+                          <TableHead>Agence</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(contract as any).articles.map((art: any) => (
+                          <TableRow key={art.id}>
+                            <TableCell className="font-medium">{art.designation}</TableCell>
+                            <TableCell className="text-center">{art.quantity}</TableCell>
+                            <TableCell>
+                              {art.agency ? (
+                                <span>{art.agency.name} <span className="text-xs text-gray-400">({art.agency.city})</span></span>
+                              ) : (
+                                <span className="text-gray-400">—</span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              )}
 
             {/* Colonne droite */}
             <div className="space-y-6">

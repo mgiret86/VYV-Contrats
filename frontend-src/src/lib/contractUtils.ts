@@ -25,6 +25,18 @@ export const STATUS_CONFIG: Record<ContractStatus, { label: string; className: s
     dot: 'bg-violet-500',
     badgeBg: 'bg-violet-50',
   },
+  TO_TRANSFER: {
+    label: 'À transférer',
+    className: 'text-purple-700 border-purple-200',
+    dot: 'bg-purple-500',
+    badgeBg: 'bg-purple-50',
+  },
+  TRANSFERRING: {
+    label: 'En cours de transfert',
+    className: 'text-amber-700 border-amber-200',
+    dot: 'bg-amber-500',
+    badgeBg: 'bg-amber-50',
+  },
 };
 
 export const SCOPE_CONFIG: Record<ContractScope, { label: string; icon: string }> = {

@@ -60,6 +60,22 @@ model Supplier {
   @@map("suppliers")
 }
 
+model Leaser {
+  id            String     @id @default(uuid())
+  name          String
+  contactName   String?
+  email         String?
+  phone         String?
+  category      String?
+  rating        Int        @default(3)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  contracts     Contract[]
+
+  @@map("leasers")
+}
+
 model Agency {
   id            String    @id @default(uuid())
   code          String    @unique
@@ -77,6 +93,7 @@ model Agency {
   contracts              ContractAgency[]
   distributionLines      DistributionTemplateLine[]
   budgetLineAgencies     BudgetLineAgency[]
+  articles               ContractArticle[]
 
   @@map("agencies")
 }
@@ -87,6 +104,8 @@ enum ContractStatus {
   EXPIRING
   DENOUNCED
   EXPIRED
+  TO_TRANSFER
+  TRANSFERRING
 }
 
 enum BillingPeriod {
@@ -110,6 +129,8 @@ model Contract {
   status                ContractStatus  @default(ACTIVE)
   supplierId            String
   supplier              Supplier        @relation(fields: [supplierId], references: [id])
+  leaserId              String?
+  leaser                Leaser?         @relation(fields: [leaserId], references: [id])
   startDate             DateTime
   endDate               DateTime
   noticePeriodMonths    Int             @default(3)
@@ -128,6 +149,7 @@ model Contract {
 
   agencies              ContractAgency[]
   documents             Document[]
+  articles              ContractArticle[]
   history               ContractHistory[]
   budgetLines           BudgetLineContract[]
 
@@ -143,6 +165,20 @@ model ContractAgency {
 
   @@id([contractId, agencyId])
   @@map("contract_agencies")
+}
+
+model ContractArticle {
+  id            String    @id @default(uuid())
+  contractId    String
+  contract      Contract  @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  designation   String
+  quantity      Int       @default(1)
+  agencyId      String?
+  agency        Agency?   @relation(fields: [agencyId], references: [id], onDelete: SetNull)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@map("contract_articles")
 }
 
 model Document {

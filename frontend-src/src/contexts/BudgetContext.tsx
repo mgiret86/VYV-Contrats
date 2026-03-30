@@ -20,6 +20,7 @@ export interface BudgetLine {
   notes?: string | null;
   linkedContractIds: string[];
   isRecurring: boolean;
+  agencyDetails: BudgetAgencyDetail[];
 }
 
 interface BudgetContextValue {
@@ -32,6 +33,12 @@ interface BudgetContextValue {
   getBudgetLinesByYear: (year: number) => BudgetLine[];
   availableYears: number[];
   refreshBudget: (year?: number) => Promise<void>;
+}
+
+// NOUVEAU — détail ventilation budget par agence
+export interface BudgetAgencyDetail {
+  agencyId: string;
+  percentage: number;
 }
 
 // ============================================================
@@ -63,7 +70,15 @@ function mapApiBudgetLine(raw: any): BudgetLine {
     vatRate: raw.vatRate,
     notes: raw.notes,
     isRecurring: raw.isRecurring,
-    linkedContractIds: raw.linkedContracts?.map((lc: any) => lc.contractId || lc.contract?.id) || [],
+    linkedContractIds:
+      raw.linkedContracts?.map((lc: any) => lc.contractId || lc.contract?.id) || [],
+    // NOUVEAU — ventilation par agence (données déjà renvoyées par le backend)
+    agencyDetails: Array.isArray(raw.agencies)
+      ? raw.agencies.map((a: any) => ({
+          agencyId: a.agency?.id || a.agencyId,
+          percentage: a.percentage ?? 0,
+        }))
+      : [],
   };
 }
 

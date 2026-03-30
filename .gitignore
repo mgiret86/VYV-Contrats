@@ -4,3 +4,5 @@ dist/
 *.log
 uploads/
 .DS_Store
+frontend-src/build
+frontend-src/tsc

@@ -32,6 +32,8 @@ const statusConfig: Record<string, { label: string; className: string; dot: stri
   DENOUNCED: { label: 'Dénoncé', className: 'bg-slate-50 text-slate-600 border-slate-200', dot: 'bg-slate-400' },
   EXPIRED: { label: 'Expiré', className: 'bg-red-50 text-red-700 border-red-200', dot: 'bg-red-500' },
   NEGOTIATING: { label: 'En négociation', className: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-500' },
+  TO_TRANSFER: { label: 'À transférer', className: 'bg-purple-50 text-purple-700 border-purple-200', dot: 'bg-purple-500' },
+  TRANSFERRING: { label: 'En cours de transfert', className: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-500' },
 };
 
 const categoryColors: Record<string, string> = {

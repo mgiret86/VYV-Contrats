@@ -5,6 +5,14 @@ import { useAuth } from './AuthContext';
 // ============================================================
 // TYPES
 // ============================================================
+// NOUVEAU — détail agence avec pourcentage
+export interface ContractAgencyDetail {
+  agencyId: string;
+  agencyCode: string;
+  agencyName: string;
+  agencyCity: string;
+  percentage: number;
+}
 
 export interface Contract {
   id: string;
@@ -34,7 +42,11 @@ export interface Contract {
   notes?: string | null;
   budgetLineId?: string | null;
   agencies: string | string[];
+  agencyDetails: ContractAgencyDetail[];
   supplier?: { id: string; name: string };
+  leaser?: { id: string; name: string } | null;
+  leaserId?: string | null;
+  articles?: { id: string; designation: string; quantity: number; agencyId?: string | null; agency?: { id: string; code: string; name: string; city: string } | null }[];
 }
 
 export interface Supplier {
@@ -81,6 +93,16 @@ function mapApiContract(raw: any): Contract {
     HEADQUARTERS: 'HEADQUARTERS',
   };
 
+  const agencyDetails: ContractAgencyDetail[] = Array.isArray(raw.agencies)
+    ? raw.agencies.map((a: any) => ({
+        agencyId: a.agency?.id || a.agencyId,
+        agencyCode: a.agency?.code || '',
+        agencyName: a.agency?.name || '',
+        agencyCity: a.agency?.city || '',
+        percentage: a.percentage ?? 0,
+      }))
+    : [];
+
   return {
     id: raw.id,
     reference: raw.reference,
@@ -88,7 +110,7 @@ function mapApiContract(raw: any): Contract {
     title: raw.title,
     category: raw.category,
     subCategory: null,
-    status: raw.status === 'EXPIRING' || raw.status === 'RENEWING' ? 'ACTIVE' : raw.status,
+    status: raw.status,
     scope: scopeMap[raw.scope] || raw.scope,
     supplierId: raw.supplierId,
     ownerId: '',
@@ -108,10 +130,29 @@ function mapApiContract(raw: any): Contract {
     distributionMode: null,
     notes: raw.notes,
     budgetLineId: null,
-    agencies: raw.allAgencies ? 'ALL' : (raw.agencies?.map((a: any) => a.agency?.code || a.agencyId) || []),
-    supplier: raw.supplier ? { id: raw.supplier.id, name: raw.supplier.name } : undefined,
+    agencies: raw.allAgencies
+      ? 'ALL'
+      : (raw.agencies?.map((a: any) => a.agency?.code || a.agencyId) || []),
+    agencyDetails,  // ← NOUVEAU
+    supplier: raw.supplier
+      ? { id: raw.supplier.id, name: raw.supplier.name }
+      : undefined,
+    leaser: raw.leaser
+      ? { id: raw.leaser.id, name: raw.leaser.name }
+      : null,
+    leaserId: raw.leaserId || null,
+    articles: Array.isArray(raw.articles)
+      ? raw.articles.map((a: any) => ({
+          id: a.id,
+          designation: a.designation,
+          quantity: a.quantity,
+          agencyId: a.agencyId || null,
+          agency: a.agency || null,
+        }))
+      : [],
   };
 }
+
 
 function mapContractToApi(data: any): any {
   const scopeMap: Record<string, string> = {
@@ -137,6 +178,8 @@ function mapContractToApi(data: any): any {
     allAgencies: data.agencies === 'ALL' || data.scope === 'ALL_AGENCIES',
     agencyIds: data.agencies !== 'ALL' && Array.isArray(data.agencies) ? data.agencies : [],
     notes: data.notes || null,
+    leaserId: data.leaserId || null,
+    articles: Array.isArray(data.articles) ? data.articles : [],
   };
 }
 

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useBudget } from '@/contexts/BudgetContext';
 import { useContracts } from '@/contexts/ContractsContext';
+import { useAgencies, Agency } from '@/hooks/useAgencies';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -34,6 +35,7 @@ import {
   ChevronRight,
   MapPin,
   FileText,
+  Loader2,
 } from 'lucide-react';
 
 // ============================================================
@@ -42,6 +44,7 @@ import {
 
 interface AgencyBudget {
   agencyId: string;
+  agencyCode: string;
   agencyName: string;
   agencyCity: string;
   contractCount: number;
@@ -56,6 +59,7 @@ interface AgencyBudget {
     category: string;
     supplierName: string;
     annualized: number;
+    percentage: number;
     share: number;
   }[];
 }
@@ -102,44 +106,13 @@ const DONUT_COLORS = [
 ];
 
 // ============================================================
-// AGENCES
-// ============================================================
-
-const AGENCIES = [
-  { id: 'SIEGE', name: 'Siège social', city: 'Paris' },
-  { id: 'AG-LYO', name: 'Agence Lyon', city: 'Lyon' },
-  { id: 'AG-MAR', name: 'Agence Marseille', city: 'Marseille' },
-  { id: 'AG-TLS', name: 'Agence Toulouse', city: 'Toulouse' },
-  { id: 'AG-BDX', name: 'Agence Bordeaux', city: 'Bordeaux' },
-  { id: 'AG-NTE', name: 'Agence Nantes', city: 'Nantes' },
-  { id: 'AG-STR', name: 'Agence Strasbourg', city: 'Strasbourg' },
-  { id: 'AG-LIL', name: 'Agence Lille', city: 'Lille' },
-  { id: 'AG-REN', name: 'Agence Rennes', city: 'Rennes' },
-  { id: 'AG-NCE', name: 'Agence Nice', city: 'Nice' },
-  { id: 'AG-MTP', name: 'Agence Montpellier', city: 'Montpellier' },
-  { id: 'AG-GRE', name: 'Agence Grenoble', city: 'Grenoble' },
-  { id: 'AG-DIJ', name: 'Agence Dijon', city: 'Dijon' },
-  { id: 'AG-RMS', name: 'Agence Reims', city: 'Reims' },
-  { id: 'AG-TRS', name: 'Agence Tours', city: 'Tours' },
-  { id: 'AG-CLF', name: 'Agence Clermont-Ferrand', city: 'Clermont-Ferrand' },
-  { id: 'AG-ORL', name: 'Agence Orléans', city: 'Orléans' },
-  { id: 'AG-ANG', name: 'Agence Angers', city: 'Angers' },
-  { id: 'AG-LRO', name: 'Agence La Rochelle', city: 'La Rochelle' },
-  { id: 'AG-PAU', name: 'Agence Pau', city: 'Pau' },
-  { id: 'AG-PRP', name: 'Agence Perpignan', city: 'Perpignan' },
-  { id: 'AG-BES', name: 'Agence Besançon', city: 'Besançon' },
-  { id: 'AG-MET', name: 'Agence Metz', city: 'Metz' },
-  { id: 'AG-LIM', name: 'Agence Limoges', city: 'Limoges' },
-  { id: 'AG-POI', name: 'Agence Poitiers', city: 'Poitiers' },
-];
-
-// ============================================================
 // COMPOSANT
 // ============================================================
 
 export default function BudgetAgencesPage() {
   const { contracts, suppliers } = useContracts();
   const { budgetLines, availableYears } = useBudget();
+  const { agencies, loading: agenciesLoading } = useAgencies();
 
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState(
@@ -149,8 +122,10 @@ export default function BudgetAgencesPage() {
   const [sortBy, setSortBy] = useState<'budget' | 'name' | 'contracts'>('budget');
   const [detailAgencyId, setDetailAgencyId] = useState<string | null>(null);
 
-  // ===== Calcul ventilation par agence =====
+  // ===== Calcul ventilation par agence (DONNÉES RÉELLES) =====
   const agencyBudgets: AgencyBudget[] = useMemo(() => {
+    if (agencies.length === 0) return [];
+
     const yearStart = new Date(`${selectedYear}-01-01`);
     const yearEnd = new Date(`${selectedYear}-12-31`);
 
@@ -164,77 +139,108 @@ export default function BudgetAgencesPage() {
     // Lignes budget de l'année
     const yearBudgetLines = budgetLines.filter((l) => l.year === selectedYear);
 
-    return AGENCIES.map((agency) => {
-      // Contrats couvrant cette agence
-      const agencyContracts = yearContracts.filter((c) => {
-        if (c.agencies === 'ALL') return true;
-        if (Array.isArray(c.agencies)) return c.agencies.includes(agency.id);
-        return c.scope === 'HEADQUARTERS' && agency.id === 'SIEGE';
-      });
+    return agencies.map((agency) => {
+      const contractDetails: AgencyBudget['contracts'] = [];
 
-      // Part de chaque contrat
-      const contractDetails = agencyContracts.map((c) => {
-        const supplier = suppliers.find((s) => s.id === c.supplierId);
+      yearContracts.forEach((c) => {
         const annualized = getAnnualized(c.amountHt, c.billingPeriod);
 
-        // Prorata temporel
+        // Prorata temporel sur l'année
         const contractStart = new Date(c.startDate);
         const contractEnd = new Date(c.endDate);
         const overlapStart = contractStart > yearStart ? contractStart : yearStart;
         const overlapEnd = contractEnd < yearEnd ? contractEnd : yearEnd;
-        const overlapDays = Math.max(0, (overlapEnd.getTime() - overlapStart.getTime()) / 86400000 + 1);
-        const yearDays = (yearEnd.getTime() - yearStart.getTime()) / 86400000 + 1;
+        const overlapDays = Math.max(
+          0,
+          (overlapEnd.getTime() - overlapStart.getTime()) / 86400000 + 1
+        );
+        const yearDays =
+          (yearEnd.getTime() - yearStart.getTime()) / 86400000 + 1;
         const yearProrata = overlapDays / yearDays;
 
-        // Prorata agences
-        let agencyCount = 1;
+        // ── Déterminer le pourcentage de cette agence ──
+        let agencyPercentage = 0;
+
         if (c.agencies === 'ALL') {
-          agencyCount = AGENCIES.length;
+          // Contrat national : vérifier si un percentage est défini
+          // dans agencyDetails, sinon répartition équitable
+          const detail = c.agencyDetails.find(
+            (ad) => ad.agencyId === agency.id
+          );
+          if (detail && detail.percentage > 0) {
+            agencyPercentage = detail.percentage;
+          } else {
+            // Répartition équitable entre toutes les agences actives
+            agencyPercentage = 100 / agencies.filter((a) => a.isActive).length;
+          }
         } else if (Array.isArray(c.agencies)) {
-          agencyCount = c.agencies.length;
+          // Contrat multi-agences ou local : chercher dans agencyDetails
+          const detail = c.agencyDetails.find(
+            (ad) => ad.agencyId === agency.id
+          );
+          if (detail) {
+            if (detail.percentage > 0) {
+              agencyPercentage = detail.percentage;
+            } else {
+              // percentage = 0 → répartition équitable entre agences liées
+              agencyPercentage = 100 / c.agencyDetails.length;
+            }
+          }
+          // Si l'agence n'est pas dans agencyDetails → agencyPercentage reste 0
         }
+        // scope HEADQUARTERS → seul le siège est concerné, géré par agencyDetails
 
-        const share = (annualized * yearProrata) / agencyCount;
+        if (agencyPercentage <= 0) return; // Cette agence n'est pas concernée
 
-        return {
+        const share = annualized * yearProrata * (agencyPercentage / 100);
+        const supplier = suppliers.find((s) => s.id === c.supplierId);
+
+        contractDetails.push({
           id: c.id,
           reference: c.reference,
           title: c.title,
           category: c.category,
           supplierName: supplier?.name || '—',
           annualized,
+          percentage: agencyPercentage,
           share,
-        };
+        });
       });
 
-      const totalBudget = contractDetails.reduce((s, c) => s + c.share, 0);
+      const totalBudget = contractDetails.reduce((s, cd) => s + cd.share, 0);
 
-      // Réalisé depuis les lignes budgétaires liées
+      // ── Réalisé depuis les lignes budgétaires ──
       let totalActual = 0;
+
       contractDetails.forEach((cd) => {
         const linkedBL = yearBudgetLines.find((bl) =>
           bl.linkedContractIds.includes(cd.id)
         );
         if (linkedBL) {
-          let agencyCount = 1;
-          const contract = contracts.find((ct) => ct.id === cd.id);
-          if (contract) {
-            if (contract.agencies === 'ALL') {
-              agencyCount = AGENCIES.length;
-            } else if (Array.isArray(contract.agencies)) {
-              agencyCount = contract.agencies.length;
-            }
+          // Utiliser le percentage réel de BudgetLineAgency si disponible
+          const blAgency = linkedBL.agencyDetails.find(
+            (ba) => ba.agencyId === agency.id
+          );
+          if (blAgency && blAgency.percentage > 0) {
+            totalActual += linkedBL.actualHt * (blAgency.percentage / 100);
+          } else if (linkedBL.agencyDetails.length > 0) {
+            // L'agence n'est pas dans la ventilation budget → 0
+          } else {
+            // Pas de ventilation budget → utiliser le % du contrat
+            totalActual += linkedBL.actualHt * (cd.percentage / 100);
           }
-          totalActual += linkedBL.actualHt / agencyCount;
         }
       });
 
-      // Estimation pour les contrats sans ligne budget
+      // Estimation pour les contrats sans ligne budget liée
       const contractsWithoutBL = contractDetails.filter(
-        (cd) => !yearBudgetLines.some((bl) => bl.linkedContractIds.includes(cd.id))
+        (cd) =>
+          !yearBudgetLines.some((bl) =>
+            bl.linkedContractIds.includes(cd.id)
+          )
       );
 
-      if (contractsWithoutBL.length > 0 && totalBudget > 0) {
+      if (contractsWithoutBL.length > 0) {
         const now = new Date();
         const monthProgress =
           selectedYear < now.getFullYear()
@@ -242,32 +248,38 @@ export default function BudgetAgencesPage() {
             : selectedYear > now.getFullYear()
               ? 0
               : now.getMonth() / 12;
-        const unlinkedBudget = contractsWithoutBL.reduce((s, c) => s + c.share, 0);
+        const unlinkedBudget = contractsWithoutBL.reduce(
+          (s, c) => s + c.share,
+          0
+        );
         totalActual += unlinkedBudget * monthProgress;
       }
 
       totalActual = Math.round(totalActual);
+      const totalBudgetRounded = Math.round(totalBudget);
 
       return {
         agencyId: agency.id,
+        agencyCode: agency.code,
         agencyName: agency.name,
         agencyCity: agency.city,
         contractCount: contractDetails.length,
-        totalBudget: Math.round(totalBudget),
+        totalBudget: totalBudgetRounded,
         totalActual,
-        remaining: Math.round(totalBudget) - totalActual,
-        pct: totalBudget > 0 ? (totalActual / totalBudget) * 100 : 0,
+        remaining: totalBudgetRounded - totalActual,
+        pct: totalBudgetRounded > 0 ? (totalActual / totalBudgetRounded) * 100 : 0,
         contracts: contractDetails,
       };
     });
-  }, [contracts, suppliers, budgetLines, selectedYear]);
+  }, [contracts, suppliers, budgetLines, agencies, selectedYear]);
 
   // ===== Filtrage et tri =====
   const filtered = useMemo(() => {
     let result = agencyBudgets.filter(
       (a) =>
         a.agencyName.toLowerCase().includes(search.toLowerCase()) ||
-        a.agencyCity.toLowerCase().includes(search.toLowerCase())
+        a.agencyCity.toLowerCase().includes(search.toLowerCase()) ||
+        a.agencyCode.toLowerCase().includes(search.toLowerCase())
     );
 
     if (sortBy === 'budget') {
@@ -307,6 +319,28 @@ export default function BudgetAgencesPage() {
     ? agencyBudgets.find((a) => a.agencyId === detailAgencyId)
     : null;
 
+  // ===== Loading =====
+  if (agenciesLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+        <span className="ml-3 text-slate-500">Chargement des agences…</span>
+      </div>
+    );
+  }
+
+  if (agencies.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 text-slate-400">
+        <Building2 className="h-12 w-12 mb-3" />
+        <p className="text-lg font-medium">Aucune agence configurée</p>
+        <p className="text-sm mt-1">
+          Ajoutez des agences dans le module Agences pour activer la ventilation budgétaire.
+        </p>
+      </div>
+    );
+  }
+
   // ========== RENDU ==========
   return (
     <div className="space-y-6">
@@ -317,7 +351,8 @@ export default function BudgetAgencesPage() {
             Budget par agence
           </h1>
           <p className="text-slate-500 text-sm mt-1">
-            Ventilation du budget IT sur {AGENCIES.length} agences — {selectedYear}
+            Ventilation du budget IT sur {agencies.length} agence
+            {agencies.length > 1 ? 's' : ''} — {selectedYear}
           </p>
         </div>
         <Select
@@ -389,7 +424,11 @@ export default function BudgetAgencesPage() {
                   Budget moyen / agence
                 </p>
                 <p className="text-3xl font-bold text-slate-900 mt-1">
-                  {formatCurrency(Math.round(totals.budget / AGENCIES.length))}
+                  {formatCurrency(
+                    agencies.length > 0
+                      ? Math.round(totals.budget / agencies.length)
+                      : 0
+                  )}
                 </p>
               </div>
               <div className="p-3 bg-purple-50 rounded-xl">
@@ -410,7 +449,7 @@ export default function BudgetAgencesPage() {
                   {agencyBudgets.filter((a) => a.contractCount > 0).length}
                 </p>
                 <p className="text-xs text-slate-400 mt-1">
-                  sur {AGENCIES.length}
+                  sur {agencies.length}
                 </p>
               </div>
               <div className="p-3 bg-cyan-50 rounded-xl">
@@ -454,7 +493,7 @@ export default function BudgetAgencesPage() {
                               {agency.agencyName}
                             </p>
                             <p className="text-[10px] text-slate-400">
-                              {agency.agencyCity} · {agency.contractCount} contrat
+                              {agency.agencyCity} · {agency.agencyCode} · {agency.contractCount} contrat
                               {agency.contractCount > 1 ? 's' : ''}
                             </p>
                           </div>
@@ -479,6 +518,11 @@ export default function BudgetAgencesPage() {
                     </div>
                   );
                 })}
+                {top5.length === 0 && (
+                  <p className="text-sm text-slate-400 text-center py-4">
+                    Aucune donnée pour {selectedYear}
+                  </p>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -577,7 +621,7 @@ export default function BudgetAgencesPage() {
                     textAnchor="middle"
                     className="text-[10px] fill-gray-400"
                   >
-                    {AGENCIES.length} agences
+                    {agencies.length} agence{agencies.length > 1 ? 's' : ''}
                   </text>
                   <text
                     x="100"
@@ -643,7 +687,7 @@ export default function BudgetAgencesPage() {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <Input
-            placeholder="Rechercher une agence…"
+            placeholder="Rechercher une agence (nom, ville, code)…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
@@ -705,9 +749,14 @@ export default function BudgetAgencesPage() {
                       onClick={() => setDetailAgencyId(agency.agencyId)}
                     >
                       <TableCell>
-                        <p className="font-medium text-slate-800 group-hover:text-blue-600 transition-colors">
-                          {agency.agencyName}
-                        </p>
+                        <div>
+                          <p className="font-medium text-slate-800 group-hover:text-blue-600 transition-colors">
+                            {agency.agencyName}
+                          </p>
+                          <p className="text-[10px] text-slate-400 font-mono">
+                            {agency.agencyCode}
+                          </p>
+                        </div>
                       </TableCell>
                       <TableCell className="hidden md:table-cell text-sm text-slate-500">
                         {agency.agencyCity}
@@ -731,6 +780,7 @@ export default function BudgetAgencesPage() {
                               : 'text-red-600'
                           }`}
                         >
+                          {agency.remaining < 0 ? '-' : ''}
                           {formatCurrency(Math.abs(agency.remaining))}
                         </span>
                       </TableCell>
@@ -805,6 +855,9 @@ export default function BudgetAgencesPage() {
                   <Badge variant="secondary" className="text-xs">
                     {detailAgency.agencyCity}
                   </Badge>
+                  <span className="text-xs font-mono text-slate-400">
+                    {detailAgency.agencyCode}
+                  </span>
                 </DialogTitle>
               </DialogHeader>
 
@@ -900,11 +953,13 @@ export default function BudgetAgencesPage() {
                                 <span className="text-[10px] text-slate-400 font-mono">
                                   {c.reference}
                                 </span>
-                                <span className="text-[10px] text-slate-300">
-                                  ·
-                                </span>
+                                <span className="text-[10px] text-slate-300">·</span>
                                 <span className="text-[10px] text-slate-400">
                                   {c.supplierName}
+                                </span>
+                                <span className="text-[10px] text-slate-300">·</span>
+                                <span className="text-[10px] text-blue-500 font-medium">
+                                  {c.percentage.toFixed(1)}%
                                 </span>
                               </div>
                             </div>

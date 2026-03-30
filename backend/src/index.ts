@@ -16,6 +16,9 @@ import { usersRouter } from './routes/users';
 import { documentsRouter } from './routes/documents';
 import { settingsRouter } from './routes/settings';
 import { distributionTemplatesRouter } from './routes/distributionTemplates';
+import { leasersRouter } from './routes/leasers';
+import { articlesRouter } from './routes/articles';
+import { searchRouter } from './routes/search';
 import { startCronJobs } from './services/cronService';
 
 dotenv.config();
@@ -58,6 +61,9 @@ app.use('/api/users', usersRouter);
 app.use('/api/documents', documentsRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/distribution-templates', distributionTemplatesRouter);
+app.use('/api/leasers', leasersRouter);
+app.use('/api', articlesRouter);
+app.use('/api/search', searchRouter);
 
 app.use('/uploads', express.static(
   process.env.UPLOAD_DIR || path.join(__dirname, '../uploads')
