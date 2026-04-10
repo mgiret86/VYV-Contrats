@@ -87,7 +87,6 @@ const PERIODS = [
 const SCOPES = [
   { value: 'SINGLE_AGENCY', label: 'Agence unique' },
   { value: 'MULTI_AGENCY', label: 'Multi-agences' },
-  { value: 'HEADQUARTERS', label: 'Siège' },
   { value: 'ALL_AGENCIES', label: 'Toutes agences' },
 ];
 
@@ -194,12 +193,13 @@ export default function ContractFormPage() {
       }
 
       // Charger les agences liées au contrat existant
-      if (existing.agencies && Array.isArray(existing.agencies) && existing.agencies.length > 0) {
+      const details = (existing as any).agencyDetails;
+      if (details && Array.isArray(details) && details.length > 0) {
         setAgencyLines(
-          existing.agencies.map((a: any) => ({
-            agencyId: a.agencyId,
-            percentage: a.percentage || 0,
-            agency: a.agency,
+          details.map((d: any) => ({
+            agencyId: d.agencyId,
+            percentage: d.percentage || 0,
+            agency: { id: d.agencyId, code: d.agencyCode, name: d.agencyName, city: d.agencyCity },
           }))
         );
       }
@@ -473,7 +473,7 @@ export default function ContractFormPage() {
                 value={form.scope}
                 onValueChange={(v) => {
                   set('scope', v);
-                  if (v === 'ALL_AGENCIES' || v === 'HEADQUARTERS') {
+                  if (v === 'ALL_AGENCIES') {
                     setAgencyLines([]);
                   }
                 }}

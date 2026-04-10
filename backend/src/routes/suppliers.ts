@@ -41,7 +41,7 @@ suppliersRouter.get('/', async (req: AuthRequest, res) => {
 suppliersRouter.get('/:id', async (req: AuthRequest, res) => {
   try {
     const supplier = await prisma.supplier.findUnique({
-      where: { id: req.params.i as string as string },
+      where: { id: req.params.id as string },
       include: {
         contracts: {
           include: {
@@ -57,6 +57,7 @@ suppliersRouter.get('/:id', async (req: AuthRequest, res) => {
     }
     res.json(supplier);
   } catch (err) {
+    console.error('GET supplier/:id error:', err);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -73,6 +74,11 @@ suppliersRouter.post('/', requireRole('ADMIN', 'MANAGER'), async (req: AuthReque
         phone: data.phone,
         category: data.category,
         rating: data.rating || 3,
+        address: data.address || null,
+        siret: data.siret || null,
+        website: data.website || null,
+        notes: data.notes || null,
+        isActive: data.isActive ?? true,
       },
     });
 
@@ -89,6 +95,7 @@ suppliersRouter.post('/', requireRole('ADMIN', 'MANAGER'), async (req: AuthReque
 
     res.status(201).json(supplier);
   } catch (err) {
+    console.error('POST supplier error:', err);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -97,8 +104,9 @@ suppliersRouter.post('/', requireRole('ADMIN', 'MANAGER'), async (req: AuthReque
 suppliersRouter.put('/:id', requireRole('ADMIN', 'MANAGER'), async (req: AuthRequest, res) => {
   try {
     const data = req.body;
+    console.log('[DEBUG PUT supplier] body reçu:', JSON.stringify(data, null, 2));
     const supplier = await prisma.supplier.update({
-      where: { id: req.params.i as string as string },
+      where: { id: req.params.id as string },
       data: {
         name: data.name,
         contactName: data.contactName,
@@ -106,10 +114,28 @@ suppliersRouter.put('/:id', requireRole('ADMIN', 'MANAGER'), async (req: AuthReq
         phone: data.phone,
         category: data.category,
         rating: data.rating,
+        address: data.address ?? null,
+        siret: data.siret ?? null,
+        website: data.website ?? null,
+        notes: data.notes ?? null,
+        isActive: data.isActive ?? true,
       },
     });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.userId,
+        action: 'UPDATE',
+        entity: 'supplier',
+        entityId: supplier.id,
+        details: { name: supplier.name },
+        ipAddress: req.ip,
+      },
+    });
+
     res.json(supplier);
   } catch (err) {
+    console.error('PUT supplier/:id error:', err);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });
@@ -118,7 +144,7 @@ suppliersRouter.put('/:id', requireRole('ADMIN', 'MANAGER'), async (req: AuthReq
 suppliersRouter.delete('/:id', requireRole('ADMIN'), async (req: AuthRequest, res) => {
   try {
     const contractCount = await prisma.contract.count({
-      where: { supplierId: req.params.i as string as string },
+      where: { supplierId: req.params.id as string },
     });
 
     if (contractCount > 0) {
@@ -128,20 +154,21 @@ suppliersRouter.delete('/:id', requireRole('ADMIN'), async (req: AuthRequest, re
       return;
     }
 
-    await prisma.supplier.delete({ where: { id: req.params.i as string as string } });
+    await prisma.supplier.delete({ where: { id: req.params.id as string } });
 
     await prisma.auditLog.create({
       data: {
         userId: req.userId,
         action: 'DELETE',
         entity: 'supplier',
-        entityId: req.params.i as string as string,
+        entityId: req.params.id as string,
         ipAddress: req.ip,
       },
     });
 
     res.json({ message: 'Fournisseur supprimé' });
   } catch (err) {
+    console.error('DELETE supplier/:id error:', err);
     res.status(500).json({ error: 'Erreur serveur' });
   }
 });

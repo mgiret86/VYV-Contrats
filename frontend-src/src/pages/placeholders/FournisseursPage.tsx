@@ -114,9 +114,9 @@ export default function FournisseursPage() {
     return enrichedSuppliers.filter((s) => {
       const matchSearch =
         s.name.toLowerCase().includes(search.toLowerCase()) ||
-        s.contactName.toLowerCase().includes(search.toLowerCase()) ||
-        s.contactEmail.toLowerCase().includes(search.toLowerCase());
-      const matchActive = showInactive || s.isActive;
+        (s.contactName || '').toLowerCase().includes(search.toLowerCase()) ||
+        (s.contactEmail || '').toLowerCase().includes(search.toLowerCase());
+      const matchActive = true; // isActive géré côté backend, tous affichés
       return matchSearch && matchActive;
     });
   }, [enrichedSuppliers, search, showInactive]);
@@ -178,10 +178,14 @@ export default function FournisseursPage() {
     setEditingSupplier(null);
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (supplierToDelete) {
-      deleteSupplier(supplierToDelete);
-      setSupplierToDelete(null);
+      try {
+        await deleteSupplier(supplierToDelete);
+        setSupplierToDelete(null);
+      } catch (err: any) {
+        alert(err?.message || 'Erreur lors de la suppression');
+      }
     }
   };
 

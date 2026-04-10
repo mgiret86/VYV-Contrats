@@ -1,5 +1,5 @@
 export type ContractStatus = 'ACTIVE' | 'DENOUNCED' | 'EXPIRED' | 'NEGOTIATING' | 'TO_TRANSFER' | 'TRANSFERRING';
-export type ContractScope = 'ALL_AGENCIES' | 'HEADQUARTERS' | 'MULTI_AGENCY';
+export type ContractScope = 'ALL_AGENCIES' | 'MULTI_AGENCY' | 'SINGLE_AGENCY';
 export type BillingPeriod = 'MONTHLY' | 'QUARTERLY' | 'ANNUAL';
 export type DistributionMode = 'PRORATA' | 'FIXED' | null;
 

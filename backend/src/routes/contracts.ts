@@ -122,6 +122,7 @@ contractsRouter.post('/', requireRole('ADMIN', 'MANAGER'), async (req: AuthReque
       data: {
         reference: await generateReference(),
         title: data.title,
+        supplierReference: data.supplierReference || null,
         category: data.category,
         supplierId: data.supplierId,
         leaserId: data.leaserId || null,
@@ -215,6 +216,7 @@ contractsRouter.put('/:id', requireRole('ADMIN', 'MANAGER'), async (req: AuthReq
       where: { id },
       data: {
         title: data.title,
+        supplierReference: data.supplierReference || null,
         category: data.category,
         status: data.status || undefined,
         supplierId: data.supplierId,

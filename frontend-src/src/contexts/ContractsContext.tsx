@@ -88,9 +88,8 @@ interface ContractsContextValue {
 function mapApiContract(raw: any): Contract {
   const scopeMap: Record<string, string> = {
     NATIONAL: 'ALL_AGENCIES',
-    LOCAL: 'MULTI_AGENCY',
+    LOCAL: 'SINGLE_AGENCY',
     REGIONAL: 'MULTI_AGENCY',
-    HEADQUARTERS: 'HEADQUARTERS',
   };
 
   const agencyDetails: ContractAgencyDetail[] = Array.isArray(raw.agencies)
@@ -106,7 +105,7 @@ function mapApiContract(raw: any): Contract {
   return {
     id: raw.id,
     reference: raw.reference,
-    supplierReference: null,
+    supplierReference: raw.supplierReference || null,
     title: raw.title,
     category: raw.category,
     subCategory: null,
@@ -157,13 +156,14 @@ function mapApiContract(raw: any): Contract {
 function mapContractToApi(data: any): any {
   const scopeMap: Record<string, string> = {
     ALL_AGENCIES: 'NATIONAL',
-    MULTI_AGENCY: 'LOCAL',
-    HEADQUARTERS: 'HEADQUARTERS',
+    MULTI_AGENCY: 'REGIONAL',
+    SINGLE_AGENCY: 'LOCAL'
   };
 
   return {
     reference: data.reference,
     title: data.title,
+    supplierReference: data.supplierReference || null,
     category: data.category,
     supplierId: data.supplierId,
     startDate: data.startDate,
@@ -175,7 +175,7 @@ function mapContractToApi(data: any): any {
     billingPeriod: data.billingPeriod || 'ANNUAL',
     vatRate: data.vatRate || 20,
     scope: scopeMap[data.scope] || 'NATIONAL',
-    allAgencies: data.agencies === 'ALL' || data.scope === 'ALL_AGENCIES',
+    allAgencies: data.scope === 'ALL_AGENCIES',   
     agencyIds: data.agencies !== 'ALL' && Array.isArray(data.agencies) ? data.agencies : [],
     notes: data.notes || null,
     leaserId: data.leaserId || null,
@@ -190,11 +190,11 @@ function mapApiSupplier(raw: any): Supplier {
     contactName: raw.contactName || '',
     contactEmail: raw.email || '',
     contactPhone: raw.phone || '',
-    address: '',
-    siret: '',
-    website: '',
-    notes: raw.category || '',
-    isActive: true,
+    address: raw.address || '',
+    siret: raw.siret || '',
+    website: raw.website || '',
+    notes: raw.notes || '',
+    isActive: raw.isActive ?? true,
   };
 }
 
@@ -293,7 +293,11 @@ export function ContractsProvider({ children }: { children: React.ReactNode }) {
         contactName: supplier.contactName,
         email: supplier.contactEmail,
         phone: supplier.contactPhone,
-        category: supplier.notes,
+        address: supplier.address || null,
+        siret: supplier.siret || null,
+        website: supplier.website || null,
+        notes: supplier.notes || null,
+        isActive: supplier.isActive ?? true,
       }),
     });
     const mapped = mapApiSupplier(created);
@@ -302,19 +306,26 @@ export function ContractsProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const updateSupplier = useCallback(async (id: string, data: Partial<Supplier>) => {
+    // Merger avec l'existant pour garantir un payload complet
+    const existing = suppliers.find((s) => s.id === id);
+    const merged = { ...existing, ...data };
     const updated = await apiFetch<any>(`/suppliers/${id}`, {
       method: 'PUT',
       body: JSON.stringify({
-        name: data.name,
-        contactName: data.contactName,
-        email: data.contactEmail,
-        phone: data.contactPhone,
-        category: data.notes,
+        name: merged.name,
+        contactName: merged.contactName,
+        email: merged.contactEmail,
+        phone: merged.contactPhone,
+        address: merged.address || null,
+        siret: merged.siret || null,
+        website: merged.website || null,
+        notes: merged.notes || null,
+        isActive: merged.isActive ?? true,
       }),
     });
     const mapped = mapApiSupplier(updated);
     setSuppliers((prev) => prev.map((s) => (s.id === id ? mapped : s)));
-  }, []);
+  }, [suppliers]);
 
   const deleteSupplier = useCallback(async (id: string) => {
     await apiFetch(`/suppliers/${id}`, { method: 'DELETE' });

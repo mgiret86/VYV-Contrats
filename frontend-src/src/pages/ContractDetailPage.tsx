@@ -30,6 +30,9 @@ import {
 } from '@/components/ui/dialog';
 import { ArrowLeft, Pencil, Trash2, FileUp } from 'lucide-react';
 import { useState } from 'react';
+import { AlertTriangle } from 'lucide-react';
+import { useEffect } from 'react';
+import { apiFetch } from '@/lib/api';
 
 // ============================================================
 // CONFIG
@@ -109,33 +112,6 @@ function getAnnualized(amount: number, period: string): number {
 // AGENCES (données locales pour la ventilation)
 // ============================================================
 
-const AGENCIES = [
-  { code: 'SIEGE', label: 'Siège social', defaultRatio: 8.00 },
-  { code: 'AG-LYO', label: 'Agence Lyon', defaultRatio: 6.00 },
-  { code: 'AG-MAR', label: 'Agence Marseille', defaultRatio: 5.50 },
-  { code: 'AG-TLS', label: 'Agence Toulouse', defaultRatio: 5.00 },
-  { code: 'AG-BDX', label: 'Agence Bordeaux', defaultRatio: 5.00 },
-  { code: 'AG-NTE', label: 'Agence Nantes', defaultRatio: 4.50 },
-  { code: 'AG-STR', label: 'Agence Strasbourg', defaultRatio: 4.50 },
-  { code: 'AG-LIL', label: 'Agence Lille', defaultRatio: 4.50 },
-  { code: 'AG-REN', label: 'Agence Rennes', defaultRatio: 4.00 },
-  { code: 'AG-MTP', label: 'Agence Montpellier', defaultRatio: 4.00 },
-  { code: 'AG-NCE', label: 'Agence Nice', defaultRatio: 3.50 },
-  { code: 'AG-GRE', label: 'Agence Grenoble', defaultRatio: 3.50 },
-  { code: 'AG-ROU', label: 'Agence Rouen', defaultRatio: 3.50 },
-  { code: 'AG-TRS', label: 'Agence Tours', defaultRatio: 3.50 },
-  { code: 'AG-CLF', label: 'Agence Clermont-Ferrand', defaultRatio: 3.00 },
-  { code: 'AG-DJN', label: 'Agence Dijon', defaultRatio: 3.00 },
-  { code: 'AG-ORL', label: 'Agence Orléans', defaultRatio: 3.00 },
-  { code: 'AG-MUL', label: 'Agence Mulhouse', defaultRatio: 2.50 },
-  { code: 'AG-ANG', label: 'Agence Angers', defaultRatio: 2.50 },
-  { code: 'AG-PAU', label: 'Agence Pau', defaultRatio: 2.50 },
-  { code: 'AG-LRO', label: 'Agence La Rochelle', defaultRatio: 2.50 },
-  { code: 'AG-BES', label: 'Agence Besançon', defaultRatio: 2.50 },
-  { code: 'AG-CAN', label: 'Agence Caen', defaultRatio: 2.50 },
-  { code: 'AG-LIM', label: 'Agence Limoges', defaultRatio: 2.50 },
-  { code: 'AG-POI', label: 'Agence Poitiers', defaultRatio: 2.50 },
-];
 
 // ============================================================
 // SOUS-COMPOSANT : ligne info
@@ -159,6 +135,11 @@ export default function ContractDetailPage() {
   const navigate = useNavigate();
   const { contracts, suppliers, deleteContract } = useContracts();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [allAgencies, setAllAgencies] = useState<{id:string;code:string;name:string;city:string}[]>([]);
+
+  useEffect(() => {
+    apiFetch<any[]>('/agencies').then(setAllAgencies).catch(() => {});
+  }, []);
 
   const contract = contracts.find((c) => c.id === id);
 
@@ -167,47 +148,58 @@ export default function ContractDetailPage() {
     ? getAnnualized(contract.amountHt, contract.billingPeriod)
     : 0;
 
-  const ventilation = useMemo(() => {
+    const ventilation = useMemo(() => {
     if (!contract) return [];
 
+    const details: any[] = (contract as any).agencyDetails || [];
+
     if (contract.scope === 'ALL_AGENCIES') {
-      return AGENCIES.map((a) => ({
-        code: a.code,
-        label: a.label,
-        ratio: a.defaultRatio,
-        amount: (annualized * a.defaultRatio) / 100,
-      })).sort((a, b) => b.ratio - a.ratio);
+      if (details.length > 0) {
+        return details.map((d: any) => ({
+          code: d.agencyCode,
+          label: `${d.agencyName}${d.agencyCity ? ` (${d.agencyCity})` : ''}`,
+          ratio: d.percentage,
+          amount: (annualized * d.percentage) / 100,
+        })).sort((a: any, b: any) => b.ratio - a.ratio);
+      }
+      if (allAgencies.length > 0) {
+        const eq = 100 / allAgencies.length;
+        return allAgencies.map((a) => ({
+          code: a.code,
+          label: `${a.name} (${a.city})`,
+          ratio: Number(eq.toFixed(2)),
+          amount: annualized / allAgencies.length,
+        })).sort((a, b) => a.code.localeCompare(b.code));
+      }
+      return [];
     }
 
-    if (
-      contract.scope === 'MULTI_AGENCY' &&
-      Array.isArray(contract.agencies)
-    ) {
-      const selected = AGENCIES.filter((a) =>
-        (contract.agencies as string[]).includes(a.code)
-      );
-      const eq = 100 / selected.length;
-      return selected.map((a) => ({
-        code: a.code,
-        label: a.label,
-        ratio: Number(eq.toFixed(2)),
-        amount: annualized / selected.length,
-      }));
+    if (contract.scope === 'MULTI_AGENCY') {
+      if (details.length > 0) {
+        return details.map((d: any) => ({
+          code: d.agencyCode,
+          label: `${d.agencyName}${d.agencyCity ? ` (${d.agencyCity})` : ''}`,
+          ratio: d.percentage,
+          amount: (annualized * d.percentage) / 100,
+        })).sort((a: any, b: any) => b.ratio - a.ratio);
+      }
+      return [];
     }
 
     return [];
-  }, [contract, annualized]);
+  }, [contract, annualized, allAgencies]);
 
+  const totalRatio = ventilation.reduce((s, v) => s + v.ratio, 0);
   const chartData = useMemo(() => {
-    const sorted = [...ventilation].sort((a, b) => b.amount - a.amount);
+    const sorted = [...ventilation].sort((a: any, b: any) => b.amount - a.amount);
     if (sorted.length <= 10) {
-      return sorted.map((v) => ({ name: v.label, value: v.amount }));
+      return sorted.map((v: any) => ({ name: v.label, value: v.amount }));
     }
     return [
-      ...sorted.slice(0, 8).map((v) => ({ name: v.label, value: v.amount })),
+      ...sorted.slice(0, 8).map((v: any) => ({ name: v.label, value: v.amount })),
       {
         name: 'Autres agences',
-        value: sorted.slice(8).reduce((s, v) => s + v.amount, 0),
+        value: sorted.slice(8).reduce((s: number, v: any) => s + v.amount, 0),
       },
     ];
   }, [ventilation]);
@@ -271,13 +263,14 @@ export default function ContractDetailPage() {
   };
 
   // Agence label pour SINGLE_AGENCY / HEADQUARTERS
+  const agencyDetails: any[] = (contract as any).agencyDetails || [];
   const singleAgencyLabel =
-    contract.scope === 'HEADQUARTERS'
-      ? 'Siège social'
-      : Array.isArray(contract.agencies) && contract.agencies.length > 0
-        ? AGENCIES.find((a) => a.code === contract.agencies[0])?.label ||
-          contract.agencies[0]
+    agencyDetails.length > 0
+      ? `${agencyDetails[0].agencyName}${agencyDetails[0].agencyCity ? ` (${agencyDetails[0].agencyCity})` : ''}`
+      : contract.scope === 'HEADQUARTERS'
+        ? 'Siège social'
         : '—';
+
 
   // ========== RENDU ==========
   return (

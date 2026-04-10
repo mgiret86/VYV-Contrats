@@ -41,8 +41,8 @@ export const STATUS_CONFIG: Record<ContractStatus, { label: string; className: s
 
 export const SCOPE_CONFIG: Record<ContractScope, { label: string; icon: string }> = {
   ALL_AGENCIES: { label: 'Toutes agences', icon: '🌐' },
-  HEADQUARTERS: { label: 'Siège', icon: '🏢' },
-  MULTI_AGENCY: { label: 'Multi-agences', icon: '🔗' },
+  MULTI_AGENCY: { label: 'Multi-agences', icon: '🏘️' },
+  SINGLE_AGENCY: { label: 'Agence unique', icon: '📍' },
 };
 
 export const BILLING_PERIOD_LABELS: Record<BillingPeriod, string> = {
